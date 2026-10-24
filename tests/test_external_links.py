@@ -10,9 +10,11 @@ from pathlib import Path
 import httpx
 
 from peach.external_links import (
-    add_link, fetch_public_html, list_links, q_external_links, remove_link, search_links,
-    star_link, update_link, w_external_link,
+    add_link, add_source, fetch_public_html, list_links, media_address, q_external_links,
+    remove_link, require_play_page, resolve_playback, search_links, star_link, update_link,
+    w_external_link,
 )
+from peach.external_play import PlayTickets, q_external_link_playback, rewrite_link_playlist
 from peach.migrations import upgrade
 from peach.profiles import bind_active, create_profile, reset_active
 from peach.taste_preferences import preference_profile
@@ -280,3 +282,65 @@ class ExternalLinkTests(unittest.TestCase):
             ).fetchone()[0]
             self.assertEqual(left, 0)
             self.assertEqual(list_links(connection)["items"], [])
+
+    def test_source_site_plays_the_address_written_on_the_page(self):
+        page = "https://cdn.example/work"
+        html = (
+            '<meta property="og:video" content="https://cdn.example/play.m3u8?token=1">'
+            '<video src="https://cdn.example/clip.mp4"></video>'
+            "<script>seek 123e4567-e89b-12d3-a456-426614174000</script>"
+            "https://127.0.0.1/secret.mp4"
+        )
+        self.assertEqual(media_address(page, html), "https://cdn.example/play.m3u8?token=1")
+        self.assertNotIn("surrit", media_address(page, html))
+
+        def fetch(url):
+            return {
+                "url": url, "title": "示例页面", "description": "", "site": "cdn.example",
+                "thumbnail_url": "", "keywords": [], "code": "", "studio": "",
+                "creator": "", "performers": [], "release_date": "", "duration": None,
+            }
+
+        with self.connect() as connection:
+            item = add_link(connection, {"url": page}, fetch=fetch)
+            with self.assertRaisesRegex(ValueError, "片源站点"):
+                require_play_page(connection, item["id"])
+            with self.assertRaisesRegex(ValueError, "公网域名"):
+                add_source(connection, {"host": "127.0.0.1"}, resolve=lambda _host: True)
+            added = add_source(
+                connection, {"host": "https://www.cdn.example/path"},
+                resolve=lambda host: host == "cdn.example",
+            )
+            self.assertEqual(added["sources"], ["cdn.example"])
+            self.assertTrue(list_links(connection)["items"][0]["playable"])
+            self.assertEqual(require_play_page(connection, item["id"]), page)
+        found = resolve_playback(page, fetch=lambda url: {
+            "url": url, "playback_url": media_address(page, html),
+        })
+        self.assertEqual(found, "https://cdn.example/play.m3u8?token=1")
+        from peach import external_play
+        original = external_play.resolve_playback
+        external_play.resolve_playback = lambda _page: found
+        try:
+            opened = q_external_link_playback(self.contract, {"id": item["id"]})
+        finally:
+            external_play.resolve_playback = original
+        self.assertEqual(opened, {
+            "src": f"/link-play/{item['id']}", "type": "application/x-mpegURL",
+        })
+        state = type("State", (), {"link_play_tickets": PlayTickets()})()
+        playlist = rewrite_link_playlist(
+            state, b"#EXTM3U\n#EXTINF:1,\nhttps://cdn.example/a.ts\n",
+            "https://cdn.example/play.m3u8", item["id"], page,
+            resolve=lambda host: host == "cdn.example",
+        )
+        self.assertNotIn(b"cdn.example", playlist)
+        self.assertIn(f"/link-play/{item['id']}/".encode(), playlist)
+        with self.assertRaisesRegex(ValueError, "不可访问"):
+            rewrite_link_playlist(
+                state, b"#EXTM3U\n#EXTINF:1,\nhttps://127.0.0.1/a.ts\n",
+                "https://cdn.example/play.m3u8", item["id"], page,
+                resolve=lambda host: host == "cdn.example",
+            )
+        self.assertEqual(self.files(), ["ledger.db", "media"])
+        self.assertEqual(list(self.media.iterdir()), [])

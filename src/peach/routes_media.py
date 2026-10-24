@@ -236,6 +236,14 @@ def external_playlist(request: Request, id: int, ticket: str, origin: str = ''):
                                       "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 
+@router.api_route("/link-play/{id}", methods=["GET", "HEAD"])
+@router.api_route("/link-play/{id}/{key}", methods=["GET", "HEAD"])
+def link_play(request: Request, id: int, key: str = "", args: dict[str, str] = Depends(require_auth)):
+    """播放当前使用者登记过的片源页面。地址来自服务端重读，不接受调用方传入的媒体 URL。"""
+    from .external_play import proxy_link
+    return proxy_link(request, id, key)
+
+
 @router.api_route("/stream", methods=["GET", "HEAD"])
 def stream(request: Request, id: int, session: str = "", args: dict[str, str] = Depends(require_auth)):
     state = request.app.state

@@ -1,6 +1,7 @@
 """外部链接：记录页面地址和元数据，不把媒体文件写入本机。"""
 from __future__ import annotations
 
+import html
 import re
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
@@ -13,6 +14,7 @@ from .profiles import resolve_profile
 from .user_agent import USER_AGENT
 
 LINK_LIMIT = 200
+SOURCE_LIMIT = 20
 SEARCH_LIMIT = 5
 PAGE_BYTES = 256 * 1024
 TIMEOUT = 12.0
@@ -30,6 +32,12 @@ _CATALOG_URL = re.compile(r"https://javdb.com/v/[A-Za-z0-9]+")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 _TAG_SPLIT = re.compile(r"[,，、]")
+_MEDIA_URL = re.compile(
+    r"https://[^\s\"'<>\\]+?\.(?:m3u8|mp4|webm)(?:\?[^\s\"'<>\\]*)?",
+    re.IGNORECASE,
+)
+_SRC_ATTR = re.compile(r"\bsrc\s*=\s*([\"'])(.*?)\1", re.IGNORECASE | re.DOTALL)
+_MEDIA_SUFFIX = (".m3u8", ".mp4", ".webm")
 
 
 def canonical_url(url: str) -> str:
@@ -126,7 +134,53 @@ def page_metadata(url: str, body: bytes, headers) -> dict:
         "thumbnail_url": thumbnail, "keywords": [item for item in keywords if item][:12],
         "code": "", "studio": "", "creator": "", "performers": [],
         "release_date": published.group(0) if published else "", "duration": duration,
+        "playback_url": media_address(page, text),
     }
+
+
+def _media_suffix(url: str) -> str:
+    path = urlsplit(url).path.lower()
+    for suffix in _MEDIA_SUFFIX:
+        if path.endswith(suffix):
+            return suffix
+    return ""
+
+
+def media_address(page: str, body: str) -> str:
+    """页面里已经写明的公网媒体地址。没有写明的地址不另行拼装。"""
+    from .social_links import meta_content
+    text = html.unescape(body or "")
+    found: list[str] = []
+    for key in ("og:video", "og:video:url"):
+        value = meta_content(text, key).strip()
+        if value:
+            found.append(value)
+    for tag in re.finditer(r"<(?:video|source)\b[^>]*>", text, re.IGNORECASE):
+        src = _SRC_ATTR.search(tag.group(0))
+        if src and src.group(2).strip():
+            found.append(src.group(2).strip())
+    found.extend(match.group(0).rstrip(").,;") for match in _MEDIA_URL.finditer(text))
+    chosen: list[str] = []
+    for raw in found:
+        try:
+            url = canonical_url(str(httpx.URL(page).join(raw.strip())))
+        except (ValueError, httpx.InvalidURL):
+            continue
+        if _media_suffix(url):
+            chosen.append(url)
+    for url in chosen:
+        if _media_suffix(url) == ".m3u8":
+            return url
+    return chosen[0] if chosen else ""
+
+
+def media_type(url: str) -> str:
+    suffix = _media_suffix(url)
+    if suffix == ".m3u8":
+        return "application/x-mpegURL"
+    if suffix == ".webm":
+        return "video/webm"
+    return "video/mp4"
 
 
 def _duration(value: str):
@@ -269,6 +323,7 @@ def list_links(connection, query: str | None = None) -> dict:
         (profile_id,),
     )
     tags = _tags_for(connection, profile_id, [int(row["asset_id"]) for row in rows])
+    sources = source_hosts(connection, profile_id)
     needle = " ".join(str(query or "").split()).casefold()
     items = []
     for row in rows:
@@ -279,6 +334,7 @@ def list_links(connection, query: str | None = None) -> dict:
             "creator": row["creator"], "release_date": row["release_date"],
             "liked": bool(row["liked"]), "tags": tags.get(int(row["asset_id"]), []),
             "href": row["url"],
+            "playable": host_matches(urlsplit(row["url"]).hostname or "", sources),
         }
         if needle:
             haystack = "\n".join([
@@ -288,7 +344,10 @@ def list_links(connection, query: str | None = None) -> dict:
             if needle not in haystack:
                 continue
         items.append(item)
-    return {"items": items[:LINK_LIMIT], "limit": LINK_LIMIT}
+    return {
+        "items": items[:LINK_LIMIT], "limit": LINK_LIMIT,
+        "sources": sources, "source_limit": SOURCE_LIMIT,
+    }
 
 
 def _save(connection, profile_id: str, meta: dict) -> dict:
@@ -538,6 +597,95 @@ def search_links(query: str | None, *, api=None, fetch=fetch_public_html) -> dic
     return {"mode": "catalog", "hits": hits, "preview": None}
 
 
+def tidy_host(value) -> str:
+    text = str(value or "").strip().casefold()
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    text = text.split("/")[0].split("?")[0].split("#")[0]
+    if text.startswith("www."):
+        text = text[4:]
+    text = text.rstrip(".")
+    if (not text or len(text) > 100 or any(char in text for char in ":@")
+            or any(ord(char) < 33 or ord(char) == 127 for char in text)):
+        raise ValueError("站点需为公网域名")
+    if not public_https_url(f"https://{text}/"):
+        raise ValueError("站点需为公网域名")
+    return text
+
+
+def host_matches(page_host: str, sources) -> bool:
+    host = (page_host or "").casefold().rstrip(".")
+    if host.startswith("www."):
+        host = host[4:]
+    return any(host == source or host.endswith("." + source) for source in sources)
+
+
+def source_hosts(connection, profile_id: str) -> list[str]:
+    rows = _rows(
+        connection,
+        "SELECT host FROM external_source WHERE profile_id=? ORDER BY created_at, id",
+        (profile_id,),
+    )
+    return [row["host"] for row in rows]
+
+
+def add_source(connection, body, *, resolve=None) -> dict:
+    from .http import resolves_publicly
+    resolve = resolves_publicly if resolve is None else resolve
+    profile_id = resolve_profile(connection)
+    host = tidy_host((body or {}).get("host"))
+    if connection.execute(
+        "SELECT 1 FROM external_source WHERE profile_id=? AND host=?", (profile_id, host),
+    ).fetchone():
+        raise ValueError("已经添加这个站点")
+    count = connection.execute(
+        "SELECT count(*) FROM external_source WHERE profile_id=?", (profile_id,),
+    ).fetchone()[0]
+    if int(count) >= SOURCE_LIMIT:
+        raise ValueError("片源站点最多 20 个")
+    if not resolve(host):
+        raise ValueError("这个站点不在公网")
+    connection.execute(
+        "INSERT INTO external_source(profile_id,host,created_at) VALUES(?,?,?)",
+        (profile_id, host, _stamp()),
+    )
+    return {"ok": True, "host": host, "sources": source_hosts(connection, profile_id)}
+
+
+def remove_source(connection, body) -> dict:
+    profile_id = resolve_profile(connection)
+    host = tidy_host((body or {}).get("host"))
+    cursor = connection.execute(
+        "DELETE FROM external_source WHERE profile_id=? AND host=?", (profile_id, host),
+    )
+    if cursor.rowcount == 0:
+        raise ValueError("没有这个片源站点")
+    return {"ok": True, "host": host, "sources": source_hosts(connection, profile_id)}
+
+
+def require_play_page(connection, link_id: int) -> str:
+    profile_id = resolve_profile(connection)
+    rows = _rows(
+        connection,
+        "SELECT url FROM external_link WHERE id=? AND profile_id=?",
+        (link_id, profile_id),
+    )
+    if not rows:
+        raise ValueError("没有这条外部链接")
+    page = canonical_url(rows[0]["url"])
+    if not host_matches(urlsplit(page).hostname or "", source_hosts(connection, profile_id)):
+        raise ValueError("这个地址不在片源站点里")
+    return page
+
+
+def resolve_playback(page: str, *, fetch=fetch_public_html) -> str:
+    meta = fetch(canonical_url(page))
+    found = str((meta or {}).get("playback_url") or "")
+    if not found:
+        raise ValueError("这一页没有可播放的地址")
+    return canonical_url(found)
+
+
 def q_external_links(contract, args=None) -> dict:
     with contract.read_connection() as connection:
         return list_links(connection, (args or {}).get("q"))
@@ -564,6 +712,10 @@ def w_external_link(contract, body) -> dict:
             result = star_link(connection, body)
         elif action == "tag":
             result = set_tag(connection, body)
+        elif action == "source-add":
+            result = add_source(connection, body)
+        elif action == "source-remove":
+            result = remove_source(connection, body)
         else:
             raise ValueError("未知操作")
     if callable(bust):

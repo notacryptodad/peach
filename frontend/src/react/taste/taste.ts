@@ -66,11 +66,19 @@ export interface ExternalLink {
   liked: boolean;
   tags: string[];
   href: string;
+  playable?: boolean;
 }
 
 export interface ExternalLinkList {
   items: ExternalLink[];
   limit: number;
+  sources?: string[];
+  source_limit?: number;
+}
+
+export interface ExternalPlayback {
+  src: string;
+  type: string;
 }
 
 export interface ExternalLinkHit {
@@ -99,6 +107,9 @@ export const searchExternalLinks = (query: string, signal?: AbortSignal) =>
 
 export const saveExternalLink = (body: Record<string, unknown>) =>
   apiSend<ExternalLink>(EXTERNAL_LINKS_URL, body);
+
+export const fetchLinkPlayback = (id: number, signal?: AbortSignal) =>
+  apiGet<ExternalPlayback>(`${EXTERNAL_LINKS_URL}/playback?id=${id}`, signal);
 
 /** 清单筛选：标题、地址、站点、说明、番号、厂牌和标签。 */
 export function linkMatches(item: ExternalLink, query: string): boolean {

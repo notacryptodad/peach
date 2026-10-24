@@ -1,5 +1,5 @@
 /* 外部链接：当前使用者的页面清单。地址和元数据记在馆藏里，媒体文件留在原地址。 */
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { RiExternalLinkLine, RiLink, RiSearchLine } from '@remixicon/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 
@@ -9,6 +9,7 @@ import { Button, ButtonLink } from '@/components/base/buttons/button';
 import { Input } from '@/components/base/input/input';
 
 import { errorMessage } from '../../api';
+import { mountPreviewPlayer } from '../../player';
 
 import { cardClass } from '../components/card';
 import { EmptyState } from '../components/empty-state';
@@ -16,11 +17,39 @@ import { Note } from '../components/note';
 import { queryClient } from '../query';
 import { busyProps } from '../settings/use-action';
 import {
-  EXTERNAL_LINKS_KEY, fetchExternalLinks, linkMatches, saveExternalLink, searchExternalLinks,
-  type ExternalLink, type ExternalLinkHit,
+  EXTERNAL_LINKS_KEY, fetchExternalLinks, fetchLinkPlayback, linkMatches, saveExternalLink,
+  searchExternalLinks, type ExternalLink, type ExternalLinkHit, type ExternalPlayback,
 } from './taste';
 
 const CARD = `${cardClass()} flex flex-col gap-4`;
+
+function LinkPlayer({ playback }: { playback: ExternalPlayback }) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useLayoutEffect(() => {
+    const node = frame.current;
+    if (!node) return undefined;
+    const video = document.createElement('video');
+    video.className = 'video-js vjs-big-play-centered';
+    video.controls = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('aria-label', '外部视频');
+    node.append(video);
+    return mountPreviewPlayer(video, playback, () => setFailed(true));
+  }, [playback, attempt]);
+  return (
+    <div ref={frame} data-jav-video="">
+      {failed ? (
+        <Note tone="neutral" action={
+          <Button variant="secondary" size="small" onClick={() => { setFailed(false); setAttempt((value) => value + 1); }}>
+            重试
+          </Button>
+        }>播放地址未取得</Note>
+      ) : null}
+    </div>
+  );
+}
 
 function refreshLinks() {
   return queryClient.invalidateQueries({ queryKey: ['taste'] });
@@ -32,6 +61,7 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
   const [description, setDescription] = useState(item.description);
   const [site, setSite] = useState(item.site);
   const [tag, setTag] = useState('');
+  const [playback, setPlayback] = useState<ExternalPlayback | null>(null);
   const star = useMutation({
     mutationFn: () => saveExternalLink({ action: 'star', id: item.id, liked: !item.liked }),
     onSuccess: async () => {
@@ -58,6 +88,10 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
       toast(body.operation === 'add' ? '已添加标签' : '已去掉标签');
     },
   });
+  const play = useMutation({
+    mutationFn: () => fetchLinkPlayback(item.id),
+    onSuccess: (result) => setPlayback(result),
+  });
   const remove = useMutation({
     mutationFn: () => saveExternalLink({ action: 'remove', id: item.id }),
     onSuccess: async () => {
@@ -66,7 +100,7 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
     },
   });
   const meta = [item.site, item.code, item.studio, item.release_date].filter(Boolean).join(' · ');
-  const message = star.error || save.error || tagWrite.error || remove.error;
+  const message = star.error || save.error || tagWrite.error || remove.error || play.error;
   return (
     <article className="flex flex-col gap-3 rounded-xl bg-background-primary-default p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -77,6 +111,10 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
           {item.description ? <p className="line-clamp-2 text-body-2-regular text-text-secondary">{item.description}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {item.playable ? (
+            <Button size="small" variant="secondary" aria-pressed={playback !== null}
+              {...busyProps(play.isPending)} onClick={() => play.mutate()}>播放</Button>
+          ) : null}
           <ButtonLink href={item.href} target="_blank" rel="noopener noreferrer" variant="secondary" size="small"
             trailingIcon={RiExternalLinkLine}>打开</ButtonLink>
           <Button size="small" variant="secondary" aria-pressed={item.liked} {...busyProps(star.isPending)}
@@ -123,6 +161,7 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
           <Button type="submit" size="small" variant="secondary" disabled={!title.trim()} {...busyProps(save.isPending)}>保存</Button>
         </form>
       ) : null}
+      {playback ? <LinkPlayer playback={playback} /> : null}
       {message ? <Note tone="error">{errorMessage(message)}</Note> : null}
     </article>
   );
@@ -130,6 +169,7 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
 
 export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
   const [draft, setDraft] = useState('');
+  const [host, setHost] = useState('');
   const [filter, setFilter] = useState('');
   const [hits, setHits] = useState<ExternalLinkHit[] | null>(null);
   const list = useQuery({
@@ -149,9 +189,18 @@ export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
     mutationFn: (query: string) => searchExternalLinks(query),
     onSuccess: (result) => setHits(result.hits),
   });
+  const sources = list.data?.sources ?? [];
+  const sourceWrite = useMutation({
+    mutationFn: (body: { action: 'source-add' | 'source-remove'; host: string }) => saveExternalLink(body),
+    onSuccess: async (_result, body) => {
+      if (body.action === 'source-add') setHost('');
+      await refreshLinks();
+      toast(body.action === 'source-add' ? '已添加片源站点' : '已移除片源站点');
+    },
+  });
   const items = (list.data?.items ?? []).filter((item) => linkMatches(item, filter));
   const urlLike = /^https?:\/\//i.test(draft.trim());
-  const message = add.error || search.error || list.error;
+  const message = add.error || search.error || list.error || sourceWrite.error;
   const submit = () => {
     const text = draft.trim();
     if (!text || add.isPending || search.isPending) return;
@@ -161,6 +210,34 @@ export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
   return (
     <section aria-label="外部链接" className={CARD}>
       <h2 className="text-title-2-medium text-text-primary">外部链接</h2>
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => {
+        event.preventDefault();
+        if (host.trim() && !sourceWrite.isPending) {
+          sourceWrite.mutate({ action: 'source-add', host: host.trim() });
+        }
+      }}>
+        <Input aria-label="片源站点" placeholder="片源站点" maxLength={100} value={host}
+          onChange={setHost} autoComplete="off" className="min-w-0 grow" />
+        <Button type="submit" size="small" variant="secondary" disabled={!host.trim()}
+          {...busyProps(sourceWrite.isPending)}>添加站点</Button>
+      </form>
+      {sources.length ? (
+        <ul aria-label="片源站点" className="flex flex-wrap gap-2">
+          {sources.map((name) => (
+            <li key={name}>
+              <Button size="small" variant="secondary" aria-label={`移除站点 ${name}`} onClick={() => {
+                void confirmModal({
+                  title: '移除片源站点',
+                  body: `不再从「${name}」读取播放地址。`,
+                  confirmLabel: '移除片源站点',
+                  danger: true,
+                  onConfirm: () => sourceWrite.mutateAsync({ action: 'source-remove', host: name }),
+                });
+              }}>{name}</Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <Input aria-label="页面地址或检索词" placeholder="页面地址或检索词" maxLength={2000} value={draft}
           onChange={setDraft} autoComplete="off" className="min-w-0 grow" />
