@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import re
+import sqlite3
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
@@ -15,6 +16,7 @@ from .user_agent import USER_AGENT
 
 LINK_LIMIT = 200
 SOURCE_LIMIT = 20
+ACTOR_LIMIT = 40
 SEARCH_LIMIT = 5
 PAGE_BYTES = 256 * 1024
 TIMEOUT = 12.0
@@ -347,6 +349,7 @@ def list_links(connection, query: str | None = None) -> dict:
     return {
         "items": items[:LINK_LIMIT], "limit": LINK_LIMIT,
         "sources": sources, "source_limit": SOURCE_LIMIT,
+        "actors": list_actors(connection, profile_id), "actor_limit": ACTOR_LIMIT,
     }
 
 
@@ -422,7 +425,7 @@ def _catalog_meta(body: dict) -> dict:
         keywords = _TAG_SPLIT.split(keywords)
     return {
         "url": url, "title": body.get("title") or "", "description": body.get("description") or "",
-        "site": body.get("site") or "JavDB", "thumbnail_url": "",
+        "site": body.get("site") or "JavDB", "thumbnail_url": _public_thumb(body.get("thumbnail_url")),
         "keywords": keywords, "code": body.get("code") or "", "studio": body.get("studio") or "",
         "creator": "", "performers": performers, "release_date": body.get("release_date") or "",
         "duration": body.get("duration"),
@@ -543,6 +546,114 @@ def set_tag(connection, body: dict) -> dict:
     return {"ok": True, "id": link_id, "tag": label, "operation": operation, "tags": tags}
 
 
+def _public_thumb(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return canonical_url(text)
+    except ValueError:
+        return ""
+
+
+def _actor_name(value) -> str:
+    name = _clean(value, 40)
+    if not name:
+        raise ValueError("演员名需为 1–40 个字符")
+    return name
+
+
+def list_actors(connection, profile_id: str) -> list[str]:
+    try:
+        rows = _rows(
+            connection,
+            "SELECT name FROM external_actor WHERE profile_id=? ORDER BY created_at, id",
+            (profile_id,),
+        )
+    except sqlite3.Error:
+        return []
+    return [row["name"] for row in rows]
+
+
+def add_actor(connection, body) -> dict:
+    profile_id = resolve_profile(connection)
+    name = _actor_name((body or {}).get("name"))
+    if connection.execute(
+        "SELECT 1 FROM external_actor WHERE profile_id=? AND name=?", (profile_id, name),
+    ).fetchone():
+        raise ValueError("已经关注这位演员")
+    count = connection.execute(
+        "SELECT count(*) FROM external_actor WHERE profile_id=?", (profile_id,),
+    ).fetchone()[0]
+    if int(count) >= ACTOR_LIMIT:
+        raise ValueError("关注演员最多 40 位")
+    connection.execute(
+        "INSERT INTO external_actor(profile_id,name,created_at) VALUES(?,?,?)",
+        (profile_id, name, _stamp()),
+    )
+    return {"ok": True, "name": name, "actors": list_actors(connection, profile_id)}
+
+
+def remove_actor(connection, body) -> dict:
+    profile_id = resolve_profile(connection)
+    name = _actor_name((body or {}).get("name"))
+    cursor = connection.execute(
+        "DELETE FROM external_actor WHERE profile_id=? AND name=?", (profile_id, name),
+    )
+    if cursor.rowcount == 0:
+        raise ValueError("没有这位演员")
+    return {"ok": True, "name": name, "actors": list_actors(connection, profile_id)}
+
+
+def require_actor(connection, body) -> str:
+    profile_id = resolve_profile(connection)
+    name = _actor_name((body or {}).get("name"))
+    if connection.execute(
+        "SELECT 1 FROM external_actor WHERE profile_id=? AND name=?", (profile_id, name),
+    ).fetchone() is None:
+        raise ValueError("还没有关注这位演员")
+    return name
+
+
+def search_actor_works(name: str, *, api=None) -> list[dict]:
+    """公开目录里这位演员的一页作品。不展开详情，不取磁力。"""
+    if api is None:
+        from .javdb_public import PUBLIC_API
+        api = PUBLIC_API
+    from .javdb_public import PublicSourceUnavailable
+    try:
+        rows = api.search_movies(_actor_name(name), limit=SEARCH_LIMIT)
+    except PublicSourceUnavailable as exc:
+        raise ValueError("在线目录暂时没有返回作品") from exc
+    return [hit for row in rows if isinstance(row, dict) and (hit := catalog_hit(row))]
+
+
+def store_actor_works(connection, name: str, hits: list[dict]) -> dict:
+    """把已经取到的目录结果写入当前使用者的外部链接。重复地址跳过。"""
+    profile_id = resolve_profile(connection)
+    require_actor(connection, {"name": name})
+    added = 0
+    skipped = 0
+    capped = False
+    for hit in hits:
+        try:
+            add_link(connection, {"origin": "catalog", **hit})
+            added += 1
+        except ValueError as exc:
+            text = str(exc)
+            if text == "已经收录这个地址":
+                skipped += 1
+                continue
+            if text == "外部链接最多 200 条":
+                capped = True
+                break
+            raise
+    return {
+        "ok": True, "name": name, "added": added, "skipped": skipped, "capped": capped,
+        "actors": list_actors(connection, profile_id),
+    }
+
+
 def catalog_hit(row: dict) -> dict | None:
     identity = row.get("id")
     if not isinstance(identity, str) or not re.fullmatch(r"[A-Za-z0-9]+", identity):
@@ -569,7 +680,8 @@ def catalog_hit(row: dict) -> dict | None:
     return {
         "url": f"https://javdb.com/v/{identity}",
         "title": _clean(row.get("title") or row.get("origin_title") or code or identity, 200),
-        "description": "", "site": "JavDB", "thumbnail_url": "",
+        "description": "", "site": "JavDB",
+        "thumbnail_url": _public_thumb(row.get("cover_url") or row.get("thumb_url")),
         "code": code, "studio": _clean(row.get("maker_name") or row.get("studio") or "", 80),
         "performers": performers[:8], "keywords": keywords[:12],
         "release_date": release[:10] if _DATE.fullmatch(release[:10]) else "",
@@ -701,23 +813,34 @@ def w_external_link(contract, body) -> dict:
     bust = getattr(contract, "cache_bust", None)
     if callable(bust):
         bust()
-    with contract.write_transaction() as connection:
-        if action == "add":
-            result = add_link(connection, body)
-        elif action == "update":
-            result = update_link(connection, body)
-        elif action == "remove":
-            result = remove_link(connection, body)
-        elif action == "star":
-            result = star_link(connection, body)
-        elif action == "tag":
-            result = set_tag(connection, body)
-        elif action == "source-add":
-            result = add_source(connection, body)
-        elif action == "source-remove":
-            result = remove_source(connection, body)
-        else:
-            raise ValueError("未知操作")
+    if action == "actor-populate":
+        with contract.read_connection() as connection:
+            name = require_actor(connection, body)
+        hits = search_actor_works(name, api=getattr(contract, "public_catalog", None))
+        with contract.write_transaction() as connection:
+            result = store_actor_works(connection, name, hits)
+    else:
+        with contract.write_transaction() as connection:
+            if action == "add":
+                result = add_link(connection, body)
+            elif action == "update":
+                result = update_link(connection, body)
+            elif action == "remove":
+                result = remove_link(connection, body)
+            elif action == "star":
+                result = star_link(connection, body)
+            elif action == "tag":
+                result = set_tag(connection, body)
+            elif action == "source-add":
+                result = add_source(connection, body)
+            elif action == "source-remove":
+                result = remove_source(connection, body)
+            elif action == "actor-add":
+                result = add_actor(connection, body)
+            elif action == "actor-remove":
+                result = remove_actor(connection, body)
+            else:
+                raise ValueError("未知操作")
     if callable(bust):
         bust()
     return result

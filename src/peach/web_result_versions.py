@@ -5,7 +5,7 @@ from .web_state import path_version
 
 RESULT_TABLES = {
     'catalog': ('asset', 'asset_entity', 'asset_tag', 'asset_subtitle', 'entity', 'entity_alias',
-                'external_link', 'external_source',
+                'external_link', 'external_source', 'external_actor',
                 'entity_link', 'entity_external_ref', 'entity_membership', 'performer_profile', 'asset_quality_goal',
                 'playlist', 'playlist_item'),
     'follow': ('follow_item', 'follow_source', 'follow_author_alias'),

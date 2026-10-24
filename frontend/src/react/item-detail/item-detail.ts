@@ -470,12 +470,13 @@ export const sameOrder = (a: readonly number[], b: readonly number[]) =>
 
 /* ── 播放区 ── */
 
-export type MediaGate = 'offline' | 'online' | 'metered' | 'disc' | '';
+export type MediaGate = 'offline' | 'online' | 'metered' | 'disc' | 'external' | '';
 
 /** 播放区此刻挡在视频前面的是哪一种说明：来源没挂载、在线作品反查不到关注条目、计费来源要
  *  点一下才拉流。保存过的在线作品照常播（壳在取数时已经把它转去关注详情）。 */
 export function mediaGate(item: DetailItem, offline: boolean): MediaGate {
   if (offline) return 'offline';
+  if (item.location === 'external' && !item.playable) return 'external';
   if (String(item.name || '').toLowerCase().endsWith('.iso')) return 'disc';
   if (item.location === 'online' && !item.follow_item_id) return 'online';
   if (item.cost === 'metered' && item.location !== 'online') return 'metered';

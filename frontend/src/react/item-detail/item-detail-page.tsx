@@ -191,6 +191,13 @@ function MediaFrame({ item, gate, helpers, actions, autoplay, onEnded }: {
             <span>请使用支持原盘的外部播放器打开。</span>
             <ExternalPlayback id={item.id} />
           </div>
+        ) : gate === 'external' ? (
+          <div role="status" data-item-gate="external">
+            <Html html={badge} />
+            <b>打开原页面</b>
+            <span>这一页没有可播放的地址。</span>
+            {item.external_href ? <a className="chip" href={String(item.external_href)} target="_blank" rel="noopener noreferrer">打开</a> : null}
+          </div>
         ) : gate === 'online' ? (
           <div id="onlineGate" role="status" data-item-gate="online">
             <Html html={badge} />
@@ -380,6 +387,7 @@ function Side({ item, queue, write, helpers, actions }: {
             : null}
           <span data-spec-item=""><Glyph name="hard-drive" /><span>{sizeText(item.size)}</span></span>
           {item.release_date ? <span data-spec-item=""><Glyph name="calendar" /><span>{item.release_date}</span></span> : null}
+          {item.description ? <p data-item-description="">{String(item.description)}</p> : null}
           {item.region_label ? (
             <button type="button" data-spec-item="" data-open-region={item.region || ''}
               title={item.region_settled ? '已判定的产地；打开同产地的作品' : '按番号或厂牌推断的产地，批量判定后不再变；打开同产地的作品'}
@@ -456,7 +464,10 @@ function DetailTitle({ item, queue, helpers, actions, onStatus }: {
                 }} />
             </span>
           ) : null}
-          {item.location === 'online' ? null : <SourceTools id={item.id} actions={actions} onStatus={onStatus} />}
+          {item.location === 'external' && item.external_href ? (
+            <a className="chip" href={String(item.external_href)} target="_blank" rel="noopener noreferrer">打开</a>
+          ) : null}
+          {item.location === 'online' || item.location === 'external' ? null : <SourceTools id={item.id} actions={actions} onStatus={onStatus} />}
         </span>
       </div>
     </div>

@@ -165,6 +165,39 @@ AGENCY_SEARCH_CLAUSE = (
 VISIBLE_CATALOG_ASSET = "a.medium='video' AND a.disposal IS NULL"
 
 
+def _table_exists(connection, name: str) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,),
+    ).fetchone() is not None
+
+
+def visible_catalog_sql(connection) -> tuple[str, list]:
+    """普通馆藏：视频，加上当前使用者的外部链接。"""
+    if not _table_exists(connection, "external_link"):
+        return VISIBLE_CATALOG_ASSET, []
+    from .profiles import resolve_profile
+    profile = resolve_profile(connection)
+    return (
+        "(" + VISIBLE_CATALOG_ASSET + " OR (a.location='external' AND a.medium='link' "
+        "AND a.disposal IS NULL AND a.id IN (SELECT asset_id FROM external_link "
+        "WHERE profile_id=?)))",
+        [profile],
+    )
+
+
+def facet_medium_sql(connection) -> tuple[str, list]:
+    """筛选项与统计认视频，也认当前使用者的外部链接。"""
+    if not _table_exists(connection, "external_link"):
+        return "a.medium='video'", []
+    from .profiles import resolve_profile
+    profile = resolve_profile(connection)
+    return (
+        "(a.medium='video' OR (a.location='external' AND a.medium='link' AND "
+        "a.id IN (SELECT asset_id FROM external_link WHERE profile_id=?)))",
+        [profile],
+    )
+
+
 def region_filter(value, trash: bool) -> tuple[list[str], list[str]]:
     """产地筛选的条件与参数；回收站和空参数都返回空。
 
@@ -208,7 +241,12 @@ def catalog_filter(contract: WebContract, args):
     trash = args.get("state") == "trash"
     # 普通馆藏仍是视频表面；回收站必须展示所有文件类型，否则从垃圾复核移入的
     # 图片、网址快捷方式等会变成不可见、不可恢复，只能被「清空回收站」直接删掉。
-    where, par = ([] if trash else [VISIBLE_CATALOG_ASSET]), []
+    if trash:
+        where, par = [], []
+    else:
+        with contract.read_connection() as connection:
+            clause, par = visible_catalog_sql(connection)
+        where = [clause]
     from .web_folders import folder_filter
     folder_where, folder_params = folder_filter(contract, args)
     where.extend(folder_where)
@@ -309,7 +347,9 @@ def catalog_filter(contract: WebContract, args):
         # 已保存的关注条目只登记在线资产，不下载媒体或生成本地缩略图。
         # 它仍然是可筛选的真实资产；若沿用首页的缩略图门槛，来源 facet 会显示
         # 「在线 1」，点进去却永远是 0 条。
-        where.append("(a.snapshot_path IS NOT NULL OR a.location = 'online')")
+        where.append(
+            "(a.snapshot_path IS NOT NULL OR a.location = 'online' OR a.location = 'external')"
+        )
 
     return where, par
 
@@ -407,8 +447,9 @@ def q_items(contract: WebContract, args):
                 r["creator"] = r["creator_entity"]["name"]
             r["performer_total"] = len(refs) or len(all_performers)
             r["_entity_kinds"] = tuple(canonical)
+    attach_external_cards(contract, rows)
     for r in rows:
-        r["cost"] = cost_for(r['location'], r.get('path'))
+        r["cost"] = "free" if r.get("location") == "external" else cost_for(r['location'], r.get('path'))
         r["has_thumb"] = contract.has_snapshot(r["snapshot_path"])
         r['has_local_poster'] = (contract.poster_root / f"{r['id']}_4.jpg").is_file()
         attach_artwork_fields(contract, r)
@@ -573,6 +614,47 @@ def attach_creator_reference_details(contract: WebContract, refs):
             ref.update(rep=portrait['rep'], has_avatar=True)
             if portrait.get('avatar_stand_in'):
                 ref['avatar_stand_in'] = True
+
+
+def attach_external_cards(contract: WebContract, rows) -> None:
+    """当前使用者的外部链接带上封面地址、页面和可否播放。封面只保留地址。"""
+    ids = [row["id"] for row in rows if row.get("location") == "external"]
+    if not ids:
+        return
+    from urllib.parse import urlsplit
+
+    from .external_links import host_matches, source_hosts
+    from .profiles import resolve_profile
+
+    marks = ",".join("?" * len(ids))
+    with contract.read_connection() as connection:
+        if not _table_exists(connection, "external_link"):
+            return
+        profile = resolve_profile(connection)
+        linked = connection.execute(
+            "SELECT id, asset_id, url, title, description, site, "
+            "COALESCE(thumbnail_url,'') AS thumbnail_url FROM external_link "
+            f"WHERE profile_id=? AND asset_id IN ({marks}) ORDER BY id",
+            (profile, *ids),
+        ).fetchall()
+        sources = source_hosts(connection, profile) if _table_exists(connection, "external_source") else []
+    by_asset = {}
+    for record in linked:
+        by_asset.setdefault(int(record["asset_id"]), record)
+    for row in rows:
+        item = by_asset.get(int(row["id"]))
+        if item is None:
+            continue
+        title = item["title"] or row.get("name") or ""
+        row["name"] = title
+        row["catalog_title"] = title
+        row["description"] = item["description"] or ""
+        row["site"] = item["site"] or ""
+        thumb = item["thumbnail_url"] or ""
+        row["follow_thumb_url"] = thumb or None
+        row["external_href"] = item["url"]
+        row["external_link_id"] = int(item["id"])
+        row["playable"] = host_matches(urlsplit(item["url"]).hostname or "", sources)
 
 
 def attach_saved_follow_cards(contract: WebContract, rows):
@@ -919,6 +1001,31 @@ def q_item(contract: WebContract, aid):
                 "SELECT id FROM follow_item WHERE asset_id=? ORDER BY id LIMIT 1", (aid,),
             ).fetchone()
             d["follow_item_id"] = int(row[0]) if row else None
+        if d.get("location") == "external":
+            if not _table_exists(c, "external_link"):
+                return {"error": "not found"}
+            from .profiles import resolve_profile
+            profile = resolve_profile(c)
+            link = c.execute(
+                "SELECT id, url, title, description, site, COALESCE(thumbnail_url,'') "
+                "FROM external_link WHERE profile_id=? AND asset_id=? ORDER BY id LIMIT 1",
+                (profile, aid),
+            ).fetchone()
+            if link is None:
+                return {"error": "not found"}
+            from .external_links import source_hosts
+            d["_external"] = {
+                "id": int(link[0]), "url": link[1], "title": link[2],
+                "description": link[3] or "", "site": link[4] or "", "thumbnail_url": link[5] or "",
+                "sources": source_hosts(c, profile) if _table_exists(c, "external_source") else [],
+            }
+            preference = c.execute(
+                "SELECT liked, COALESCE(reason,'') FROM asset_preference "
+                "WHERE profile_id=? AND asset_id=?",
+                (profile, aid),
+            ).fetchone()
+            d["liked"] = bool(preference[0]) if preference else False
+            d["like_reason"] = preference[1] if preference else ""
         legacy_rows = list(c.execute(
             "SELECT t.tag,t.source FROM asset_tag t WHERE t.asset_id=? AND "
             + tag_not_hidden("t.asset_id", "peach_normalize(t.tag)")
@@ -981,7 +1088,23 @@ def q_item(contract: WebContract, aid):
         d["creator"] = d["entities"]["creator"][0]
     if d["entities"]["studio"]:
         d["studio"] = d["entities"]["studio"][0]
-    d["cost"] = cost_for(d['location'], d.get('path'))
+    external = d.pop("_external", None)
+    if external:
+        from urllib.parse import urlsplit
+
+        from .external_links import host_matches
+        title = external["title"] or d.get("name") or ""
+        d["name"] = title
+        d["catalog_title"] = title
+        d["description"] = external["description"]
+        d["site"] = external["site"]
+        d["follow_thumb_url"] = external["thumbnail_url"] or None
+        d["external_href"] = external["url"]
+        d["external_link_id"] = external["id"]
+        d["playable"] = host_matches(urlsplit(external["url"]).hostname or "", external["sources"])
+        d["cost"] = "free"
+    else:
+        d["cost"] = cost_for(d['location'], d.get('path'))
     d["has_thumb"] = contract.has_snapshot(d["snapshot_path"])
     d['has_local_poster'] = (contract.poster_root / f"{d['id']}_4.jpg").is_file()
     attach_artwork_fields(contract, d)
@@ -1201,6 +1324,7 @@ def q_tops(contract: WebContract, n=28, jav=False, seed="", state="", page=0, fi
         if filters and filters.get('folder'):
             conditions, folder_params = catalog_filter(contract, filters)
             scope += ' AND ' + ' AND '.join(conditions)
+        medium, medium_params = facet_medium_sql(c)
         base = (
             "SELECT e.id,e.canonical_name,count(DISTINCT ae.asset_id) n,"
             "(SELECT a2.id FROM asset_entity ae2 JOIN asset a2 ON a2.id=ae2.asset_id "
@@ -1209,7 +1333,7 @@ def q_tops(contract: WebContract, n=28, jav=False, seed="", state="", page=0, fi
             " ORDER BY (a2.play_count IS NULL),a2.size DESC LIMIT 1) rep "
             "FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id "
             "JOIN asset a ON a.id=ae.asset_id "
-            "WHERE a.medium='video' AND e.kind=? " + scope +
+            f"WHERE {medium} AND e.kind=? " + scope +
             "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT ? OFFSET ?"
         )
         first_page_span = n * TOPS_POOL_FACTOR if seed else n
@@ -1217,7 +1341,7 @@ def q_tops(contract: WebContract, n=28, jav=False, seed="", state="", page=0, fi
         def read(kind, limit, skip):
             return [{"id": entity_id, "k": k, "n": cnt, "rep": representative}
                     for entity_id, k, cnt, representative
-                    in c.execute(base, (kind, *folder_params, limit, skip))]
+                    in c.execute(base, (*medium_params, kind, *folder_params, limit, skip))]
 
         def pick(kind):
             """按数量取候选池，再按种子确定性抽样。种子为空时退回严格前 N。"""
@@ -1290,38 +1414,43 @@ def q_facets(
             clause, values = _entity_asset_filter(c, scope_kind, scope_name)
             scope += "AND " + clause + " "
             scope_params.extend(values)
+        medium, medium_params = facet_medium_sql(c)
+
+        def facet_params():
+            return (*medium_params, *scope_params)
+
         out = {}
         out["locations"] = [dict(r) for r in c.execute(
             "SELECT a.location AS k, count(*) AS n, "
             "SUM(CASE WHEN a.play_count>0 THEN 1 ELSE 0 END) AS played "
-            "FROM asset a WHERE a.medium='video' " + scope +
-            "GROUP BY a.location ORDER BY n DESC", scope_params)]
+            f"FROM asset a WHERE {medium} " + scope +
+            "GROUP BY a.location ORDER BY n DESC", facet_params())]
         if filters is not None and asset_id is None:
             conditions, parameters = catalog_filter(contract, {**filters, "state": state})
             scope += "AND " + " AND ".join(conditions) + " "
             scope_params.extend(parameters)
         out["orientations"] = [dict(r) for r in c.execute(
             "SELECT a.ctx_orient AS k,count(*) AS n FROM asset a "
-            "WHERE a.medium='video' AND a.ctx_orient IS NOT NULL AND a.ctx_orient<>'' " + scope +
-            "GROUP BY a.ctx_orient ORDER BY n DESC", scope_params)]
+            f"WHERE {medium} AND a.ctx_orient IS NOT NULL AND a.ctx_orient<>'' " + scope +
+            "GROUP BY a.ctx_orient ORDER BY n DESC", facet_params())]
         out["regions"] = region_facet_rows(c.execute(
             f"SELECT {EFFECTIVE_REGION_SQL} AS k,count(*) AS n FROM asset a "
-            "WHERE a.medium='video' " + scope + "GROUP BY k ORDER BY n DESC",
-            scope_params))
+            f"WHERE {medium} " + scope + "GROUP BY k ORDER BY n DESC",
+            facet_params()))
         out["creators"] = [dict(r) for r in c.execute(
             "SELECT e.canonical_name AS k,count(DISTINCT ae.asset_id) AS n "
             "FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id "
-            "JOIN asset a ON a.id=ae.asset_id WHERE a.medium='video' AND e.kind='creator' " + scope +
+            f"JOIN asset a ON a.id=ae.asset_id WHERE {medium} AND e.kind='creator' " + scope +
         
-            "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT 60", scope_params)]
+            "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT 60", facet_params())]
         # 标签要分层 —— 一锅端会让「演员:一个ren」和「1080P」「足交」混在一起。
         # 三类分开：技术规格（画质/时长/画幅，筛选价值低）、内容维度（真正有用的）、演员（另立一栏）。
         rows = [dict(r) for r in c.execute(
             "SELECT e.canonical_name AS k, count(DISTINCT ae.asset_id) AS n "
             "FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id "
-            "JOIN asset a ON a.id=ae.asset_id WHERE a.medium='video' AND e.kind='tag' " + scope +
+            f"JOIN asset a ON a.id=ae.asset_id WHERE {medium} AND e.kind='tag' " + scope +
             "AND " + tag_is_not_a_performer_name("e.normalized_name") + " "
-            "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT 400", scope_params)]
+            "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT 400", facet_params())]
         classified = [
             dict(r, cat=tag_cat(r["k"]))
             for r in rows
@@ -1334,9 +1463,9 @@ def q_facets(
         out["tagperformers"] = [dict(r) for r in c.execute(
             "SELECT e.canonical_name AS k,count(DISTINCT ae.asset_id) AS n "
             "FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id "
-            "JOIN asset a ON a.id=ae.asset_id WHERE a.medium='video' AND e.kind='performer' " + scope +
+            f"JOIN asset a ON a.id=ae.asset_id WHERE {medium} AND e.kind='performer' " + scope +
         
-            "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT 20", scope_params)]
+            "GROUP BY e.id,e.canonical_name ORDER BY n DESC LIMIT 20", facet_params())]
         st = c.execute(
             "SELECT count(*) total, COALESCE(sum(size),0) bytes, "
             "SUM(CASE WHEN duration IS NOT NULL THEN 1 ELSE 0 END) duration, "
@@ -1346,8 +1475,8 @@ def q_facets(
             "THEN 1 ELSE 0 END) flagged, "
             "SUM(EXISTS(SELECT 1 FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id "
             "WHERE ae.asset_id=a.id AND e.kind='creator')) attributed "
-            "FROM asset a WHERE a.medium='video' AND a.disposal IS NULL "
-            + scope, scope_params).fetchone()
+            f"FROM asset a WHERE {medium} AND a.disposal IS NULL "
+            + scope, facet_params()).fetchone()
         out["stats"] = dict(st)
         saved = [dict(row) for row in c.execute(
             "SELECT a.id,a.location FROM asset a WHERE a.medium='video' "

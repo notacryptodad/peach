@@ -52,7 +52,11 @@ function LinkPlayer({ playback }: { playback: ExternalPlayback }) {
 }
 
 function refreshLinks() {
-  return queryClient.invalidateQueries({ queryKey: ['taste'] });
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['taste'] }),
+    queryClient.invalidateQueries({ queryKey: ['catalog-grid'] }),
+    queryClient.invalidateQueries({ queryKey: ['facets'] }),
+  ]);
 }
 
 function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string) => void }) {
@@ -170,6 +174,7 @@ function LinkRow({ item, toast }: { item: ExternalLink; toast: (message: string)
 export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
   const [draft, setDraft] = useState('');
   const [host, setHost] = useState('');
+  const [actor, setActor] = useState('');
   const [filter, setFilter] = useState('');
   const [hits, setHits] = useState<ExternalLinkHit[] | null>(null);
   const list = useQuery({
@@ -190,6 +195,7 @@ export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
     onSuccess: (result) => setHits(result.hits),
   });
   const sources = list.data?.sources ?? [];
+  const actors = list.data?.actors ?? [];
   const sourceWrite = useMutation({
     mutationFn: (body: { action: 'source-add' | 'source-remove'; host: string }) => saveExternalLink(body),
     onSuccess: async (_result, body) => {
@@ -198,9 +204,23 @@ export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
       toast(body.action === 'source-add' ? '已添加片源站点' : '已移除片源站点');
     },
   });
+  const actorWrite = useMutation({
+    mutationFn: (body: { action: 'actor-add' | 'actor-remove' | 'actor-populate'; name: string }) =>
+      saveExternalLink(body),
+    onSuccess: async (result, body) => {
+      if (body.action === 'actor-add') setActor('');
+      await refreshLinks();
+      if (body.action === 'actor-populate') {
+        const added = Number((result as { added?: number }).added || 0);
+        toast(added ? `已收录 ${added} 部作品` : '没有新的作品');
+      } else {
+        toast(body.action === 'actor-add' ? '已关注演员' : '已移除关注演员');
+      }
+    },
+  });
   const items = (list.data?.items ?? []).filter((item) => linkMatches(item, filter));
   const urlLike = /^https?:\/\//i.test(draft.trim());
-  const message = add.error || search.error || list.error || sourceWrite.error;
+  const message = add.error || search.error || list.error || sourceWrite.error || actorWrite.error;
   const submit = () => {
     const text = draft.trim();
     if (!text || add.isPending || search.isPending) return;
@@ -234,6 +254,39 @@ export function ExternalLinks({ toast }: { toast: (message: string) => void }) {
                   onConfirm: () => sourceWrite.mutateAsync({ action: 'source-remove', host: name }),
                 });
               }}>{name}</Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => {
+        event.preventDefault();
+        const name = actor.trim();
+        if (name && !actorWrite.isPending) actorWrite.mutate({ action: 'actor-add', name });
+      }}>
+        <Input aria-label="演员名" placeholder="演员名" maxLength={40} value={actor}
+          onChange={setActor} autoComplete="off" className="min-w-0 grow" />
+        <Button type="submit" size="small" variant="secondary" disabled={!actor.trim()}
+          {...busyProps(actorWrite.isPending && actorWrite.variables?.action === 'actor-add')}>关注</Button>
+      </form>
+      {actors.length ? (
+        <ul aria-label="关注演员" className="flex flex-col gap-2">
+          {actors.map((name) => (
+            <li key={name} className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 truncate text-body-2-regular text-text-primary">{name}</span>
+              <span className="flex gap-2">
+                <Button size="small" variant="secondary" aria-label={`收录 ${name} 的作品`}
+                  {...busyProps(actorWrite.isPending && actorWrite.variables?.name === name && actorWrite.variables?.action === 'actor-populate')}
+                  onClick={() => actorWrite.mutate({ action: 'actor-populate', name })}>收录作品</Button>
+                <Button size="small" variant="secondary" aria-label={`移除演员 ${name}`} onClick={() => {
+                  void confirmModal({
+                    title: '移除关注演员',
+                    body: `不再保留「${name}」。已收录的作品仍留在清单里。`,
+                    confirmLabel: '移除关注演员',
+                    danger: true,
+                    onConfirm: () => actorWrite.mutateAsync({ action: 'actor-remove', name }),
+                  });
+                }}>移除</Button>
+              </span>
             </li>
           ))}
         </ul>

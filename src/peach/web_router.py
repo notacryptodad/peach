@@ -52,7 +52,7 @@ from .web_resource_search import q_resource_search
 from .web_jav_detail import q_jav_detail, q_jav_image, q_jav_resources, q_jav_reviews
 from .external_links import q_external_link_search, q_external_links, w_external_link
 from .external_play import q_external_link_playback
-from .profiles import q_profiles, w_profile_activate, w_profile_create
+from .profiles import q_profiles, requested_profile_id, w_profile_activate, w_profile_create
 from .taste_online import q_taste_board
 from .web_jav_discovery import q_jav_discoveries
 from .web_feeds import (
@@ -197,7 +197,7 @@ def _get_facets(contract, args):
     ) if args.get(key)}
     scope_key += repr(sorted(filters.items()))
     return contract.cached(
-        f"facets{'-jav' if jav else ''}:{scope_key}",
+        f"facets{'-jav' if jav else ''}:{requested_profile_id()}:{scope_key}",
         lambda: q_facets(
             contract,
             jav=jav, scope_kind=scope_kind, scope_name=scope_name, asset_id=asset_id,

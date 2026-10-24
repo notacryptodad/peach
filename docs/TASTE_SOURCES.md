@@ -44,4 +44,8 @@ API 的 `summary.bookmarks` 为范围内去重书签数，来源行的 `bookmark
 
 收录写入 `external_link`，并保证一条 `location='external'`、`medium='link'` 的 asset。`path` 是规范化后的 HTTPS 页面地址。媒体文件留在原地址，不进云下载。标星写入当前使用者的 `asset_preference`。使用者添加的标签写入 `asset_tag` 与 `asset_entity`，隐藏按 `profile_id`。页面关键词只保留当前词表里的内容标签。口味把这些作品算进当前使用者自己的清单；其他使用者的链接不计入。打开作品使用记录的地址。页面在 `/taste`。
 
-片源站点按当前使用者记在 `external_source`，每人最多 20 个域名。`POST /api/external-links` 的 `source-add` 与 `source-remove` 维护这份名单。播放时 `GET /api/external-links/playback?id=` 重新读取页面，只采用页面里已经写明的公网 HTTPS 媒体地址，再由 `/link-play/{id}` 转给播放器。上游地址不返回给浏览器，媒体字节不写入媒体库。页面里没有写明播放地址时，这条链接仍只打开原来的页面。见 ADR-0116。
+片源站点按当前使用者记在 `external_source`，每人最多 20 个域名。`POST /api/external-links` 的 `source-add` 与 `source-remove` 维护这份名单。播放时 `GET /api/external-links/playback?id=` 重新读取页面，只采用页面里已经写明的公网 HTTPS 媒体地址，再由 `/link-play/{id}` 转给播放器。上游地址不返回给浏览器，媒体字节不写入媒体库。页面里没有写明播放地址时，详情和清单提供打开原页面。见 ADR-0116。
+
+关注演员记在 `external_actor`，每人最多 40 个名字。`actor-add` 与 `actor-remove` 维护这份名单。`actor-populate` 用演员名调用 `PublicAPI.search_movies` 的一页结果，把标题、番号、厂牌、出演者、词表内标签、封面地址和 `https://javdb.com/v/{id}` 写入当前使用者的外部链接。重复地址跳过。不调用 `movie` 或 `magnets`。
+
+当前使用者的这些作品进入 `/api/items`、`/api/item` 和 `/api/facets`。封面使用保存的地址，由浏览器加载。另一位使用者的链接不进入当前网格。选中本地媒体库时，外部作品不在该库路径下。见 ADR-0117 与[外部馆藏](EXTERNAL_LIBRARY.md)。

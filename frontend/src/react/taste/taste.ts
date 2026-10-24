@@ -74,6 +74,8 @@ export interface ExternalLinkList {
   limit: number;
   sources?: string[];
   source_limit?: number;
+  actors?: string[];
+  actor_limit?: number;
 }
 
 export interface ExternalPlayback {
@@ -88,6 +90,7 @@ export interface ExternalLinkHit {
   studio?: string;
   performers?: string[];
   keywords?: string[];
+  thumbnail_url?: string;
   release_date?: string;
   description?: string;
   site?: string;

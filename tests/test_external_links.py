@@ -344,3 +344,70 @@ class ExternalLinkTests(unittest.TestCase):
             )
         self.assertEqual(self.files(), ["ledger.db", "media"])
         self.assertEqual(list(self.media.iterdir()), [])
+
+    def test_actor_works_join_the_catalog_with_a_cover_url_and_no_media_file(self):
+        class Api:
+            def search_movies(self, query, limit=10):
+                self.query, self.limit = query, limit
+                return [{
+                    "id": "ActorHit", "number": "EXM-009", "title": "演员作品",
+                    "maker_name": "示例厂牌", "actors": [{"name": "演示女优"}],
+                    "tags": ["人妻"], "cover_url": "https://cdn.example/cover.jpg",
+                }]
+
+            def movie(self, code):
+                raise AssertionError(code)
+
+            def magnets(self, code):
+                raise AssertionError(code)
+
+        api = Api()
+        self.contract.public_catalog = api
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO asset(location,path,name,medium,first_seen,last_seen) "
+                "VALUES('local',?, '本地片','video','2026-01-01','2026-01-01')",
+                (r"R:\Media\one.mp4",),
+            )
+        followed = w_external_link(self.contract, {"action": "actor-add", "name": "演示女优"})
+        self.assertEqual(followed["actors"], ["演示女优"])
+        populated = w_external_link(self.contract, {"action": "actor-populate", "name": "演示女优"})
+        self.assertEqual((api.query, api.limit, populated["added"]), ("演示女优", 5, 1))
+        self.assertEqual(list(self.media.iterdir()), [])
+        again = w_external_link(self.contract, {"action": "actor-populate", "name": "演示女优"})
+        self.assertEqual((again["added"], again["skipped"]), (0, 1))
+
+        from peach.web_catalog import q_facets, q_item, q_items
+        from peach.web_state import WebContract
+        posters = self.root / "posters"
+        posters.mkdir()
+        web = WebContract(
+            self.db, poster_root=posters, cover_root=self.root / "covers",
+            snapshot_root=self.root / "snaps",
+        )
+        page = q_items(web, {"limit": "20"})
+        external = [item for item in page["items"] if item.get("location") == "external"]
+        self.assertEqual(len(external), 1)
+        self.assertEqual(external[0]["follow_thumb_url"], "https://cdn.example/cover.jpg")
+        self.assertEqual(external[0]["name"], "演员作品")
+        self.assertEqual(external[0]["cost"], "free")
+        self.assertNotIn("path", external[0])
+        self.assertTrue(any(item.get("medium") == "video" for item in page["items"]))
+        tagged = q_items(web, {"tag": "人妻", "limit": "20"})
+        self.assertEqual([item["id"] for item in tagged["items"]], [external[0]["id"]])
+        detail = q_item(web, external[0]["id"])
+        self.assertEqual(detail["external_href"], "https://javdb.com/v/ActorHit")
+        self.assertFalse(detail["playable"])
+        self.assertNotIn("path", detail)
+        facets = q_facets(web)
+        self.assertIn("人妻", [row["k"] for row in facets["tags"]])
+        self.assertIn("external", [row["k"] for row in facets["locations"]])
+        with self.connect() as connection:
+            viewer = create_profile(connection, "乙")["id"]
+        token = bind_active(viewer)
+        try:
+            self.assertEqual(q_item(web, external[0]["id"]), {"error": "not found"})
+            theirs = q_items(web, {"limit": "20"})
+            self.assertFalse(any(item.get("location") == "external" for item in theirs["items"]))
+        finally:
+            reset_active(token)

@@ -205,7 +205,7 @@ const clipGraphemes=(value:unknown,max:number)=>{
   return parts.length>max?`${parts.slice(0,Math.max(0,max-1)).join('')}…`:parts.join('');
 };
 /** 来源代号到界面名称：`local`→`本地`、`115`→`115`、`pikpak`→`PikPak`、`online`→`在线`。 */
-const LOC:Record<string,string>={...SOURCE_LABELS,local:'本地',online:'在线'};
+const LOC:Record<string,string>={...SOURCE_LABELS,local:'本地',online:'在线',external:'外部'};
 /* 种子随机：FNV-1a 把「种子 + 键」压成一个 32 位数当排序键。同一个种子下顺序稳定，
    换种子就是另一套顺序，客户端不必存 PRNG 状态，也不必让后端多带一个参数。首页的
    抽样和关注页岛的两排共用这一份，同一粒种子两边取到的是同一批。 */

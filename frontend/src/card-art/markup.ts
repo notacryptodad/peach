@@ -198,6 +198,8 @@ export interface CoverItem {
   code?: string;
   cover_key?: string;
   is_jav?: boolean;
+  location?: string;
+  follow_thumb_url?: string | null;
   has_cover?: boolean;
   cover_version?: string;
   has_thumb?: boolean;
@@ -239,6 +241,15 @@ export interface Artwork {
 
 const NO_ARTWORK: Artwork = { kind: '', html: '' };
 
+/** 外部作品的封面是记录下来的地址，由浏览器去取，番号版式不再改走本地封套。 */
+function remotePoster(item: { location?: string; follow_thumb_url?: string | null }, eager: boolean): Artwork | null {
+  if (item.location !== 'external' || !item.follow_thumb_url) return null;
+  return {
+    kind: 'thumb',
+    html: `<img class="poster" src="${esc(item.follow_thumb_url)}" width="640" height="360" alt="" loading="${eager ? 'eager' : 'lazy'}" referrerpolicy="no-referrer">`,
+  };
+}
+
 /** 番号作品的封面：按「JAV 默认封面」取官方封套或预览图，两种来源都挂在元素上，
  *  设置一换 `syncJavImages` 原地换图。取景数据跟着元素走，从预览图切回封面时还找得到框。 */
 export function javArtwork(item: CoverItem, layout: 'big' | 'small', eager: boolean, javImage: unknown): Artwork {
@@ -261,6 +272,8 @@ export function javArtwork(item: CoverItem, layout: 'big' | 'small', eager: bool
  *  预览格。`size` 是这一屏的大图／小图，只施加给番号作品。 */
 export function cardArtwork(item: CoverItem & { follow_thumb_url?: string | null }, size: 'big' | 'small',
   eager: boolean, javImage: unknown): Artwork {
+  const remote = remotePoster(item, eager);
+  if (remote) return remote;
   if (item.is_jav) return javArtwork(item, size, eager, javImage);
   if (item.follow_thumb_url) {
     return {
@@ -274,6 +287,8 @@ export function cardArtwork(item: CoverItem & { follow_thumb_url?: string | null
 /** Mix 的一张画面，播放队列每一行的小图也是它：番号作品走封套链，其余取本地预览格，同一条
  *  在两处长得一样。`size` 只施加给番号作品。 */
 export function mixFace(item: CoverItem, size: 'big' | 'small', eager: boolean, javImage: unknown): Artwork {
+  const remote = remotePoster(item, eager);
+  if (remote) return remote;
   if (item.is_jav) return javArtwork(item, size, eager, javImage);
   if (item.has_cover && item.cover_key) return { kind: 'cover', html: coverImage(item, size, eager) };
   if (!item.has_thumb && !item.has_local_poster) return NO_ARTWORK;
@@ -290,6 +305,7 @@ export function queueThumbHtml(item: CoverItem, javImage: unknown): string {
    官方封套或预览图；其它媒体退到本地预览格。返回空串表示这条没有可用的本地图，
    播放器照旧从黑场开始。 */
 export function detailPosterUrl(item: CoverItem, javImage: unknown): string {
+  if (item.location === 'external' && item.follow_thumb_url) return item.follow_thumb_url;
   const thumb = item.has_thumb || item.has_local_poster ? `/poster?id=${item.id}&c=4` : '';
   if (!item.is_jav) return item.has_cover && item.cover_key ? coverUrl(item) : thumb;
   return javImageKind(item, javImage) === 'cover'
