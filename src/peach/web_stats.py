@@ -370,13 +370,15 @@ def q_stats(contract: WebContract):
     """统计页：库存 / 归属 / 标签 / 本地与在线播放 / 各存储卷。"""
     with contract.read_connection() as c:
         out = {}
+        # 外部链接只有页面地址，不计入网盘、本地和文件类型。
+        stored = f"{PRESENT} AND COALESCE(location,'')<>'external'"
         out["by_loc"] = [dict(r) for r in c.execute(
             "SELECT location k, count(*) n, COALESCE(sum(size),0) bytes, "
             "SUM(CASE WHEN medium='video' THEN 1 ELSE 0 END) videos "
-            f"FROM asset WHERE {PRESENT} GROUP BY location ORDER BY bytes DESC")]
+            f"FROM asset WHERE {stored} GROUP BY location ORDER BY bytes DESC")]
         out["by_medium"] = [dict(r) for r in c.execute(
             "SELECT medium k, count(*) n, COALESCE(sum(size),0) bytes "
-            f"FROM asset WHERE {PRESENT} GROUP BY medium ORDER BY bytes DESC")]
+            f"FROM asset WHERE {stored} GROUP BY medium ORDER BY bytes DESC")]
         out["by_length"] = _bands(c, "ctx_length", LENGTH_BANDS)
         out["by_quality"] = _bands(c, "ctx_quality", QUALITY_BANDS)
         config = settings_file.active()

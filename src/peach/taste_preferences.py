@@ -15,7 +15,8 @@ LABELS = {"performer": "出演者偏好", "creator": "创作者偏好", "tag": "
 _PROFILES = {}
 _POLICY_FINGERPRINT = None
 PROFILE_TABLES = ('asset', 'asset_entity', 'asset_preference', 'entity', 'entity_alias',
-                  'entity_link', 'entity_classification', 'follow_source', 'genre_decision')
+                  'entity_link', 'entity_classification', 'external_link', 'follow_source',
+                  'genre_decision')
 
 
 def _policy_fingerprint():

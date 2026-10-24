@@ -84,10 +84,22 @@ def collection_evidence(connection, index, counters):
     from .profiles import DEFAULT_PROFILE_ID, resolve_profile
     condition = "a.disposal IS NULL" if "disposal" in columns else "1=1"
     profile_id = resolve_profile(connection)
+    params: list = [profile_id]
+    owned_external = ""
+    if "location" in columns:
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "external_link" in tables:
+            owned_external = (
+                " AND (COALESCE(a.location,'')<>'external' OR a.id IN "
+                "(SELECT asset_id FROM external_link WHERE profile_id=?))"
+            )
+            params.append(profile_id)
     rows = {row["id"]: dict(row) for row in connection.execute(
         "SELECT " + ",".join("a." + field for field in fields) + ",COALESCE(p.liked,0) liked "
-        "FROM asset a LEFT JOIN asset_preference p ON p.asset_id=a.id AND p.profile_id=? WHERE " + condition,
-        (profile_id,))}
+        "FROM asset a LEFT JOIN asset_preference p ON p.asset_id=a.id AND p.profile_id=? WHERE "
+        + condition + owned_external,
+        params)}
     linked = defaultdict(lambda: defaultdict(set))
     for aid, eid, kind, name in connection.execute(
         "SELECT ae.asset_id,e.id,e.kind,e.canonical_name FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id"):

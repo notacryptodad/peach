@@ -50,6 +50,7 @@ from .web_downloads import (q_downloads, w_download_cancel, w_download_postproce
                             w_download_submit)
 from .web_resource_search import q_resource_search
 from .web_jav_detail import q_jav_detail, q_jav_image, q_jav_resources, q_jav_reviews
+from .external_links import q_external_link_search, q_external_links, w_external_link
 from .profiles import q_profiles, w_profile_activate, w_profile_create
 from .taste_online import q_taste_board
 from .web_jav_discovery import q_jav_discoveries
@@ -391,6 +392,8 @@ GET_HANDLERS = {
     "/api/search-history": _get_search_history,
     "/api/taste": _get_taste,
     "/api/taste/board": _get_taste_board,
+    "/api/external-links": q_external_links,
+    "/api/external-links/search": q_external_link_search,
     "/api/profiles": q_profiles,
     "/api/review": _get_review,
     "/api/post-setup-tutorial": _get_post_setup_tutorial,
@@ -442,6 +445,7 @@ POST_HANDLERS = {
     "/api/taste/source": w_taste_source,
     "/api/profiles": w_profile_create,
     "/api/profiles/active": w_profile_activate,
+    "/api/external-links": w_external_link,
     "/api/trash/empty": _post_empty_trash,
     "/api/organize/preview": w_organize_preview,
     "/api/organize/apply": w_organize_apply,

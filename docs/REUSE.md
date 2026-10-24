@@ -319,6 +319,10 @@ MGS 专属发行先查自营商品目录，Prestige 番号复用 `metadata_route
 
 口味看板复用 `preference_profile`、`preference_score` 与 `javdb_public.PublicAPI.search_movies`（`/v2/search` 一页，不另写客户端）。详情补齐沿用 `PublicAPI.movie` 的身份核对、3 秒间隔、请求预算和磁盘快照。页面放在现有口味页顶部，空态与完成设置沿用 `EmptyState`、首启表单和 `/taste`。多名使用者复用已有 `profile` 表和 `profile_id`，不新建账号体系，见 ADR-0114。无新增依赖。全目录分页仍未做，见 [JAV 发现](JAV_DISCOVERY.md)。
 
+## 外部链接
+
+外部链接复用已有 `asset` 行和 `profile`。`location='external'`、`medium='link'`、`path` 为页面地址，扫描与视频处理不领取这一来源。取页复用 `httpx`、`public_https_url`、`resolves_publicly` 与 `body_text`，只保留最多 256 KiB 页头。公开目录检索复用 `PublicAPI.search_movies` 的一页结果，不调用 `magnets`，也不把媒体写入磁盘。标星写入 `asset_preference`，标签写入 `asset_tag` 与 `asset_entity`，口味沿用 `preference_profile`。页面放在 `/taste`，沿用 `EmptyState`、`Input` 与 `Button`。无新增依赖。云下载、想要清单和本机 STRM 文件各自服务另一条路径，见 ADR-0115。
+
 ## 复用决策门槛
 
 每次决定「用现成的还是自己写」都按这四条走，本节其余各条是按这四条做出的具体决定：

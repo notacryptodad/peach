@@ -24,7 +24,7 @@ class MigrationTests(unittest.TestCase):
             connection.execute("INSERT INTO asset(id,location,path,medium,disposal) VALUES(1,'local','sample.mp4','video','trash')")
             connection.execute("INSERT INTO asset_tag(asset_id,tag,source) VALUES(1,'示例','user')")
             connection.commit()
-            self.assertEqual([migration.version for migration in upgrade(self.db, MIGRATIONS)], ['0046', '0047'])
+            self.assertEqual([migration.version for migration in upgrade(self.db, MIGRATIONS)], ['0046', '0047', '0048'])
             self.assertEqual(connection.execute("SELECT disposal,disposal_reason FROM asset WHERE id=1").fetchone(), ('trash', None))
             self.assertEqual(connection.execute("SELECT tag,source FROM asset_tag WHERE asset_id=1").fetchall(), [('示例', 'user')])
             self.assertEqual(connection.execute("SELECT count(*) FROM asset").fetchone()[0], 1)
@@ -43,7 +43,7 @@ class MigrationTests(unittest.TestCase):
         sqlite3.connect(self.db).close()
         backup = self.root / "before.db"
         done = upgrade(self.db, MIGRATIONS, backup)
-        self.assertEqual([m.version for m in done], [f'{number:04d}' for number in range(48)])
+        self.assertEqual([m.version for m in done], [f'{number:04d}' for number in range(49)])
         self.assertTrue(backup.exists())
         con = sqlite3.connect(self.db)
         tables = {row[0] for row in con.execute(
@@ -60,8 +60,9 @@ class MigrationTests(unittest.TestCase):
                          "playlist", "playlist_item",
                          "asset_tag_preference", "asset_search", "follow_playback",
                          "genre_decision", "asset_subtitle", "task_run", "performer_profile", "code_sample_image",
-                         "entity_classification", "entity_identity_link", "seed_pack_history", "schema_migration"} <= tables)
-        self.assertEqual(versions, [f'{number:04d}' for number in range(48)])
+                         "entity_classification", "entity_identity_link", "seed_pack_history",
+                         "external_link", "schema_migration"} <= tables)
+        self.assertEqual(versions, [f'{number:04d}' for number in range(49)])
         self.assertEqual(upgrade(self.db, MIGRATIONS), [])
         self.assertEqual(plan(self.db, MIGRATIONS)[1], [])
 
@@ -449,6 +450,8 @@ EXPECTED_DELETE_RULES = {
     ("asset_tag_preference", "profile_id"): ("profile", "CASCADE"),
     ("follow_playback", "profile_id"): ("profile", "CASCADE"),
     ("asset_subtitle", "asset_id"): ("asset", "CASCADE"),
+    ("external_link", "asset_id"): ("asset", "CASCADE"),
+    ("external_link", "profile_id"): ("profile", "CASCADE"),
 }
 NO_ACTION_ALLOWED = {("profile", "user_id")}
 

@@ -47,6 +47,67 @@ export const fetchViewers = (signal?: AbortSignal) => apiGet<ViewerList>(PROFILE
 export const createViewer = (name: string) => apiSend<Viewer>(PROFILES_URL, { name });
 export const activateViewer = (id: string) => apiSend<Viewer>(PROFILE_ACTIVE_URL, { id });
 
+export const EXTERNAL_LINKS_URL = '/api/external-links';
+export const EXTERNAL_LINK_SEARCH_URL = '/api/external-links/search';
+export const EXTERNAL_LINKS_KEY = ['taste', 'external-links'] as const;
+
+export interface ExternalLink {
+  id: number;
+  asset_id: number;
+  url: string;
+  title: string;
+  description: string;
+  site: string;
+  thumbnail_url: string;
+  code: string;
+  studio: string;
+  creator: string;
+  release_date: string;
+  liked: boolean;
+  tags: string[];
+  href: string;
+}
+
+export interface ExternalLinkList {
+  items: ExternalLink[];
+  limit: number;
+}
+
+export interface ExternalLinkHit {
+  url: string;
+  title: string;
+  code?: string;
+  studio?: string;
+  performers?: string[];
+  keywords?: string[];
+  release_date?: string;
+  description?: string;
+  site?: string;
+}
+
+export interface ExternalLinkSearch {
+  mode: 'empty' | 'page' | 'catalog';
+  hits: ExternalLinkHit[];
+  preview: ExternalLinkHit | null;
+}
+
+export const fetchExternalLinks = (signal?: AbortSignal) =>
+  apiGet<ExternalLinkList>(EXTERNAL_LINKS_URL, signal);
+
+export const searchExternalLinks = (query: string, signal?: AbortSignal) =>
+  apiGet<ExternalLinkSearch>(`${EXTERNAL_LINK_SEARCH_URL}?q=${encodeURIComponent(query)}`, signal);
+
+export const saveExternalLink = (body: Record<string, unknown>) =>
+  apiSend<ExternalLink>(EXTERNAL_LINKS_URL, body);
+
+/** 清单筛选：标题、地址、站点、说明、番号、厂牌和标签。 */
+export function linkMatches(item: ExternalLink, query: string): boolean {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return true;
+  return [item.title, item.url, item.site, item.description, item.code, item.studio, item.creator, ...item.tags]
+    .join('\n').toLocaleLowerCase().includes(needle);
+}
+
 export interface TasteBoardItem {
   name: string;
   strength: number;
