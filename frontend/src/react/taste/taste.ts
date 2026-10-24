@@ -20,6 +20,8 @@ import { playedFor } from '../stats/stats';
 
 export const TASTE_URL = '/api/taste';
 export const TASTE_BOARD_URL = '/api/taste/board';
+export const PROFILES_URL = '/api/profiles';
+export const PROFILE_ACTIVE_URL = '/api/profiles/active';
 export const TASTE_REFRESH_URL = '/api/taste/refresh';
 export const TASTE_IMPORT_URL = '/api/taste/import';
 export const TASTE_SOURCE_URL = '/api/taste/source';
@@ -28,6 +30,97 @@ export const TASTE_SOURCE_URL = '/api/taste/source';
 export const tasteKey = (window: string) => ['taste', window] as const;
 /** 口味看板：偏好摘要和在线目录命中。 */
 export const TASTE_BOARD_KEY = ['taste', 'board'] as const;
+export const VIEWERS_KEY = ['taste', 'viewers'] as const;
+
+export interface Viewer {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface ViewerList {
+  viewers: Viewer[];
+  limit: number;
+}
+
+export const fetchViewers = (signal?: AbortSignal) => apiGet<ViewerList>(PROFILES_URL, signal);
+export const createViewer = (name: string) => apiSend<Viewer>(PROFILES_URL, { name });
+export const activateViewer = (id: string) => apiSend<Viewer>(PROFILE_ACTIVE_URL, { id });
+
+export const EXTERNAL_LINKS_URL = '/api/external-links';
+export const EXTERNAL_LINK_SEARCH_URL = '/api/external-links/search';
+export const EXTERNAL_LINKS_KEY = ['taste', 'external-links'] as const;
+
+export interface ExternalLink {
+  id: number;
+  asset_id: number;
+  url: string;
+  title: string;
+  description: string;
+  site: string;
+  thumbnail_url: string;
+  code: string;
+  studio: string;
+  creator: string;
+  release_date: string;
+  liked: boolean;
+  tags: string[];
+  href: string;
+  playable?: boolean;
+}
+
+export interface ExternalLinkList {
+  items: ExternalLink[];
+  limit: number;
+  sources?: string[];
+  source_limit?: number;
+  actors?: string[];
+  actor_limit?: number;
+}
+
+export interface ExternalPlayback {
+  src: string;
+  type: string;
+}
+
+export interface ExternalLinkHit {
+  url: string;
+  title: string;
+  code?: string;
+  studio?: string;
+  performers?: string[];
+  keywords?: string[];
+  thumbnail_url?: string;
+  release_date?: string;
+  description?: string;
+  site?: string;
+}
+
+export interface ExternalLinkSearch {
+  mode: 'empty' | 'page' | 'catalog';
+  hits: ExternalLinkHit[];
+  preview: ExternalLinkHit | null;
+}
+
+export const fetchExternalLinks = (signal?: AbortSignal) =>
+  apiGet<ExternalLinkList>(EXTERNAL_LINKS_URL, signal);
+
+export const searchExternalLinks = (query: string, signal?: AbortSignal) =>
+  apiGet<ExternalLinkSearch>(`${EXTERNAL_LINK_SEARCH_URL}?q=${encodeURIComponent(query)}`, signal);
+
+export const saveExternalLink = (body: Record<string, unknown>) =>
+  apiSend<ExternalLink>(EXTERNAL_LINKS_URL, body);
+
+export const fetchLinkPlayback = (id: number, signal?: AbortSignal) =>
+  apiGet<ExternalPlayback>(`${EXTERNAL_LINKS_URL}/playback?id=${id}`, signal);
+
+/** 清单筛选：标题、地址、站点、说明、番号、厂牌和标签。 */
+export function linkMatches(item: ExternalLink, query: string): boolean {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return true;
+  return [item.title, item.url, item.site, item.description, item.code, item.studio, item.creator, ...item.tags]
+    .join('\n').toLocaleLowerCase().includes(needle);
+}
 
 export interface TasteBoardItem {
   name: string;

@@ -15,7 +15,8 @@ LABELS = {"performer": "出演者偏好", "creator": "创作者偏好", "tag": "
 _PROFILES = {}
 _POLICY_FINGERPRINT = None
 PROFILE_TABLES = ('asset', 'asset_entity', 'asset_preference', 'entity', 'entity_alias',
-                  'entity_link', 'entity_classification', 'follow_source', 'genre_decision')
+                  'entity_link', 'entity_classification', 'external_link', 'follow_source',
+                  'genre_decision')
 
 
 def _policy_fingerprint():
@@ -46,7 +47,8 @@ def preference_profile(connection, store, *, cache=True):
         key = database, revision if revision_table else store_version(Path(database)), store_version(store), _policy_fingerprint()
         if key in _PROFILES:
             return _PROFILES[key]
-        cache_path = store.parent / "preference-cache.json"
+        from .profiles import preference_cache_path
+        cache_path = preference_cache_path(store, "preference-cache.json")
         fingerprint = json.dumps(key, ensure_ascii=False)
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))

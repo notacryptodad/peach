@@ -26,9 +26,20 @@ function followStreamSource(item: PlayerItem): PlayerSource | null {
 
 /** 起播片源只有这一个判据，详情和沉浸模式共用：服务端说要转码分片就给分片，否则直读。
  *  有 B 帧却缺 ctts 的 MP4 直读时浏览器按错的显示顺序丢帧，整片持续卡顿。 */
+async function externalStreamSource(item: PlayerItem): Promise<PlayerSource | null> {
+  if (item.location !== 'external') return null;
+  const linkId = Number(item.external_link_id);
+  if (!item.playable || !Number.isInteger(linkId)) throw new Error('这一页没有可播放的地址');
+  const playback = await api(`/api/external-links/playback?id=${linkId}`) as { src?: string; type?: string };
+  if (!playback?.src) throw new Error('这一页没有可播放的地址');
+  return { src: playback.src, type: playback.type || 'video/mp4' };
+}
+
 export async function playableStreamSource(item: PlayerItem, session: string): Promise<PlayerSource> {
   const proxied = followStreamSource(item);
   if (proxied) return proxied;
+  const external = await externalStreamSource(item);
+  if (external) return external;
   try {
     const plan = await api(`/api/stream-plan?id=${item.id}&session=${encodeURIComponent(session)}`) as
       { protocol?: string; src?: string; mime_type?: string } | null;

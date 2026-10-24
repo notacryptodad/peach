@@ -133,12 +133,17 @@ def w_preference(contract: ActivityContract, body):
     if len(reason) > 2000:
         raise ValueError("reason is limited to 2000 characters")
     with contract.write_transaction() as connection:
-        if not connection.execute("SELECT 1 FROM asset WHERE id=?", (aid,)).fetchone():
+        located = connection.execute("SELECT location FROM asset WHERE id=?", (aid,)).fetchone()
+        if not located:
             raise ValueError("asset not found")
+        profile_id = DEFAULT_PROFILE_ID
+        if located[0] == "external":
+            from .profiles import resolve_profile
+            profile_id = resolve_profile(connection)
         if not liked and not reason:
             connection.execute(
                 "DELETE FROM asset_preference WHERE profile_id=? AND asset_id=?",
-                (DEFAULT_PROFILE_ID, aid),
+                (profile_id, aid),
             )
         else:
             connection.execute(
@@ -147,11 +152,11 @@ def w_preference(contract: ActivityContract, body):
                 "ON CONFLICT(profile_id,asset_id) DO UPDATE SET "
                 "liked=excluded.liked,reason=excluded.reason,source=excluded.source,"
                 "updated_at=excluded.updated_at",
-                (DEFAULT_PROFILE_ID, aid, liked, reason),
+                (profile_id, aid, liked, reason),
             )
         row = connection.execute(
             "SELECT liked,reason FROM asset_preference WHERE profile_id=? AND asset_id=?",
-            (DEFAULT_PROFILE_ID, aid),
+            (profile_id, aid),
         ).fetchone()
     return {
         "ok": True, "liked": bool(row["liked"]) if row else False,

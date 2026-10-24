@@ -81,18 +81,36 @@ def collection_evidence(connection, index, counters):
     columns = {row[1] for row in connection.execute("PRAGMA table_info(asset)")}
     fields = [name for name in ("id", "creator", "studio", "duration", "release_date", "play_seconds", "play_count",
               "o_count", "rating", "feedback", "last_played") if name in columns]
+    from .profiles import DEFAULT_PROFILE_ID, resolve_profile
     condition = "a.disposal IS NULL" if "disposal" in columns else "1=1"
+    profile_id = resolve_profile(connection)
+    params: list = [profile_id]
+    owned_external = ""
+    if "location" in columns:
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "external_link" in tables:
+            owned_external = (
+                " AND (COALESCE(a.location,'')<>'external' OR a.id IN "
+                "(SELECT asset_id FROM external_link WHERE profile_id=?))"
+            )
+            params.append(profile_id)
     rows = {row["id"]: dict(row) for row in connection.execute(
         "SELECT " + ",".join("a." + field for field in fields) + ",COALESCE(p.liked,0) liked "
-        "FROM asset a LEFT JOIN asset_preference p ON p.asset_id=a.id AND p.profile_id='local-default' WHERE " + condition)}
+        "FROM asset a LEFT JOIN asset_preference p ON p.asset_id=a.id AND p.profile_id=? WHERE "
+        + condition + owned_external,
+        params)}
     linked = defaultdict(lambda: defaultdict(set))
     for aid, eid, kind, name in connection.execute(
         "SELECT ae.asset_id,e.id,e.kind,e.canonical_name FROM asset_entity ae JOIN entity e ON e.id=ae.entity_id"):
         if aid in rows and eid not in index.excluded and kind in KINDS and name not in TECH_TAGS | LENGTH_TAGS:
             linked[aid][kind].add(eid)
             index.names[kind][eid] = name
+    owned = profile_id == DEFAULT_PROFILE_ID
     for aid, row in rows.items():
         if row.get("feedback") == "dislike":
+            continue
+        if not owned and not row.get("liked"):
             continue
         for kind in ("creator", "studio"):
             if not linked[aid][kind] and row.get(kind):
@@ -103,7 +121,8 @@ def collection_evidence(connection, index, counters):
         features["length"] = {length_band(row.get("duration"))} - {None}
         for kind, values in features.items():
             for eid in values:
-                counters["馆藏积累"][kind][eid] += 1
+                if owned:
+                    counters["馆藏积累"][kind][eid] += 1
                 counters["观看与反馈"][kind][eid] += behavior
 
 
@@ -149,7 +168,8 @@ def browser_evidence(connection, store, index, accounts, counters, *, cache=True
               sorted((kind, label, sorted(ids)) for (kind, label), ids in index.aliases.items()),
               sorted((key, sorted(values)) for key, values in accounts.items()), decisions]
     fingerprint = hashlib.sha256(json.dumps(inputs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-    cache_path = store.parent / 'browser-preference-cache.json'
+    from .profiles import preference_cache_path
+    cache_path = preference_cache_path(store, "browser-preference-cache.json")
     try:
         cached = json.loads(cache_path.read_text(encoding='utf-8')) if cache else {}
         if cached.get('version') == 1 and cached.get('fingerprint') == fingerprint:
@@ -186,10 +206,13 @@ def browser_evidence(connection, store, index, accounts, counters, *, cache=True
 
 
 def preference_evidence(connection, store, *, cache=True):
+    from .profiles import DEFAULT_PROFILE_ID, resolve_profile
     index = IdentityIndex(connection)
     counters = {source: defaultdict(Counter) for source in ("观看与反馈", "馆藏积累", "浏览记录", "浏览器书签", "关注")}
     collection_evidence(connection, index, counters)
     accounts, followed = identity_context(connection)
+    if resolve_profile(connection) != DEFAULT_PROFILE_ID:
+        followed = {}
     for kind, identities in followed.items():
         for (eid, name), count in identities.items():
             if eid in index.excluded:

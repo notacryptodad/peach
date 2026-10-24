@@ -152,7 +152,9 @@ def q_jav_discoveries(contract, args):
     scope = "library" if args.get("scope") == "library" else "external"
     limit = max(1, min(int(args.get("limit") or 60), 100))
     with contract.read_connection() as connection:
-        strengths, names, evidence = preference_profile(connection, contract.taste_history_store)
+        from .profiles import viewer_files
+        _profile_id, store, _manifest = viewer_files(contract, connection)
+        strengths, names, evidence = preference_profile(connection, store)
         profile = {"id": 0, "entities": {kind: set(values) for kind, values in strengths.items()}}
         candidates = _library(connection) if scope == "library" else _external(connection, contract)
         unique = {}

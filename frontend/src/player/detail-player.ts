@@ -247,7 +247,11 @@ export async function mountDetailPlayer(
     player.src(next);
     enforceDuration(); setTimeout(enforceDuration, 0); setTimeout(enforceDuration, 250);
     if (autoplay) player.play()?.catch(() => {});
-  }).catch(() => {});
+  }).catch((error: unknown) => {
+    if (!live() || item.location !== 'external' || player.isDisposed()) return;
+    const message = error instanceof Error && error.message ? error.message : '这一页没有可播放的地址';
+    player.error({ code: 4, message });
+  });
   return player;
 }
 
@@ -368,7 +372,7 @@ export function mountPlayer(video: HTMLVideoElement, options: MountPlayerOptions
     trackedVideo = mounted?.el().querySelector('video') ?? video;
     trackPlaybackPosition(key, trackedVideo);
     if (kind === 'follow') wireFollowTelemetry(item, trackedVideo);
-    else {
+    else if (item.location !== 'external') {
       trackedVideo.addEventListener('play', () => {
         void (api('/api/play', { method: 'POST', body: JSON.stringify({ id: item.id }) }) as Promise<unknown>).catch(() => {});
       }, { once: true });

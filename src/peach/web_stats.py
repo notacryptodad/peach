@@ -61,8 +61,10 @@ def taste_inputs(contract: WebContract, window: str) -> tuple:
     浏览历史库、分析清单与导入目录由 `scripts/taste_history.py` 在进程外写；榜单上的
     圆头像读头像目录。有时间窗的视图起点每天滑一格，按日期重算一次。
     """
-    return (store_version(contract.taste_history_store),
-            path_version(contract.taste_history_manifest),
+    from .profiles import viewer_files
+    _profile_id, store, manifest = viewer_files(contract)
+    return (store_version(store),
+            path_version(manifest),
             path_version(contract.taste_history_import_root),
             path_version(contract.avatar_root),
             (_taste_since(window) or "")[:10])
@@ -103,18 +105,21 @@ def _attach_taste_face_availability(contract: WebContract, rankings: dict) -> No
 
 def q_taste(contract: WebContract, args=None):
     args = args or {}
+    from .profiles import viewer_files
     window = str(args.get("window") or "all")
     with contract.read_connection() as connection:
+        profile_id, store, manifest_path = viewer_files(contract, connection)
         payload = build_taste_dashboard(
-            contract.taste_history_store,
+            store,
             connection,
             since=_taste_since(window),
+            profile_id=profile_id,
         )
     # 取图可用性在库连接之外判：它读的是头像目录的索引，不是账本。
     _attach_taste_face_availability(contract, payload.get("rankings") or {})
     updated_at = None
     try:
-        manifest = json.loads(contract.taste_history_manifest.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         updated_at = manifest.get("updated_at")
     except (OSError, ValueError, TypeError):
         pass
@@ -130,29 +135,40 @@ def q_taste(contract: WebContract, args=None):
         "window": window,
         "updated_at": updated_at,
         "storage": {"exports": export_count, "bytes": export_bytes},
-        "browsers": browser_sources(contract.taste_history_store),
+        "browsers": browser_sources(store),
     })
     return payload
 
 
 def w_taste_refresh(contract: WebContract, body, *, progress=None, checkpoint=None, resume_state=None):
+    from .profiles import bind_active, reset_active, viewer_files
     if body.get("background"):
+        profile_id = str(body.get("profile_id") or "")
+        if not profile_id:
+            with contract.read_connection() as connection:
+                profile_id = viewer_files(contract, connection)[0]
+        captured = {**body, "profile_id": profile_id}
         job = contract.taste_refresh_job
         def work(job_id):
-            result = w_taste_refresh(contract, {**body, "background": False},
-                progress=lambda **fields: job.update(job_id, **fields),
-                checkpoint=lambda **fields: job.checkpoint(job_id, **fields), resume_state=job.snapshot())
+            token = bind_active(profile_id)
+            try:
+                result = w_taste_refresh(contract, {**captured, "background": False},
+                    progress=lambda **fields: job.update(job_id, **fields),
+                    checkpoint=lambda **fields: job.checkpoint(job_id, **fields), resume_state=job.snapshot())
+            finally:
+                reset_active(token)
             job.update(job_id, **result, status="complete", message="部分浏览记录未取得" if result["warnings"] else "口味分析已更新", completed_at=time.time())
         return job.start(work, restart=True, initial={
             "stage": "discovering", "message": "正在查找 Peach 主机上的浏览器资料"},
-            recovery={'background': True, 'window': body.get('window') or 'all'})
+            recovery={'background': True, 'window': captured.get('window') or 'all', 'profile_id': profile_id})
+    _profile_id, store, manifest_path = viewer_files(contract)
     window = str(body.get("window") or "all")
-    sources = enabled_history_sources(contract.taste_history_store)
+    sources = enabled_history_sources(store)
     results = list((resume_state or {}).get('refresh_results') or [])
     completed = set((resume_state or {}).get('completed_profiles') or [])
     plans = (
             ('history', sources, refresh_history),
-            ('bookmarks', enabled_bookmark_sources(contract.taste_history_store), refresh_bookmarks))
+            ('bookmarks', enabled_bookmark_sources(store), refresh_bookmarks))
     profile_keys = (resume_state or {}).get('profile_keys')
     if profile_keys is None:
         profile_keys = [f'{kind}:{source.browser}:{source.profile}:{source.path}'
@@ -167,16 +183,16 @@ def w_taste_refresh(contract: WebContract, body, *, progress=None, checkpoint=No
             key = f'{kind}:{source.browser}:{source.profile}:{source.path}'
             if key in completed or key not in profile_keys:
                 continue
-            rows = refresh([source], contract.taste_history_store, progress=profile_progress)
+            rows = refresh([source], store, progress=profile_progress)
             results.extend(rows)
             if rows and all(row.get('status') != 'failed' for row in rows):
                 completed.add(key)
             if checkpoint and not checkpoint(refresh_results=results.copy(), completed_profiles=sorted(completed),
                                               checked=len(completed), total=len(profile_keys)):
                 raise InterruptedError('口味读取已停止')
-    if contract.taste_history_store.is_file():
-        analysis = analyze_history(contract.taste_history_store, contract.taste_history_root, progress=progress)
-        write_manifest(contract.taste_history_manifest, results, analysis)
+    if store.is_file():
+        analysis = analyze_history(store, contract.taste_history_root, progress=progress)
+        write_manifest(manifest_path, results, analysis)
     contract.cache_bust()
     if progress:
         progress(stage="dashboard", checked=0, total=None, message="正在汇总口味分布、标签与创作者排名")
@@ -185,11 +201,13 @@ def w_taste_refresh(contract: WebContract, body, *, progress=None, checkpoint=No
 
 
 def w_taste_source(contract: WebContract, body):
+    from .profiles import viewer_files
+    _profile_id, store, manifest_path = viewer_files(contract)
     if body.get("operation") in ("add", "disable", "enable", "delete_browser"):
-        configure_browser(contract.taste_history_store, body["operation"], body)
+        configure_browser(store, body["operation"], body)
         if body["operation"] == "delete_browser":
-            analysis = analyze_history(contract.taste_history_store, contract.taste_history_root)
-            write_manifest(contract.taste_history_manifest, [], analysis)
+            analysis = analyze_history(store, contract.taste_history_root)
+            write_manifest(manifest_path, [], analysis)
         contract.cache_bust()
         return {"dashboard": q_taste(contract, {"window": str(body.get("window") or "all")})}
     if body.get("operation") != "remove":
@@ -197,9 +215,9 @@ def w_taste_source(contract: WebContract, body):
     source_key = str(body.get("source_key") or "")
     if not re.fullmatch(r"[0-9a-f]{64}", source_key):
         raise ValueError("invalid taste source key")
-    removed = remove_history_source(contract.taste_history_store, source_key)
-    analysis = analyze_history(contract.taste_history_store, contract.taste_history_root)
-    write_manifest(contract.taste_history_manifest, [{"removed": removed}], analysis)
+    removed = remove_history_source(store, source_key)
+    analysis = analyze_history(store, contract.taste_history_root)
+    write_manifest(manifest_path, [{"removed": removed}], analysis)
     contract.cache_bust()
     return {
         "removed": removed,
@@ -352,13 +370,15 @@ def q_stats(contract: WebContract):
     """统计页：库存 / 归属 / 标签 / 本地与在线播放 / 各存储卷。"""
     with contract.read_connection() as c:
         out = {}
+        # 外部链接只有页面地址，不计入网盘、本地和文件类型。
+        stored = f"{PRESENT} AND COALESCE(location,'')<>'external'"
         out["by_loc"] = [dict(r) for r in c.execute(
             "SELECT location k, count(*) n, COALESCE(sum(size),0) bytes, "
             "SUM(CASE WHEN medium='video' THEN 1 ELSE 0 END) videos "
-            f"FROM asset WHERE {PRESENT} GROUP BY location ORDER BY bytes DESC")]
+            f"FROM asset WHERE {stored} GROUP BY location ORDER BY bytes DESC")]
         out["by_medium"] = [dict(r) for r in c.execute(
             "SELECT medium k, count(*) n, COALESCE(sum(size),0) bytes "
-            f"FROM asset WHERE {PRESENT} GROUP BY medium ORDER BY bytes DESC")]
+            f"FROM asset WHERE {stored} GROUP BY medium ORDER BY bytes DESC")]
         out["by_length"] = _bands(c, "ctx_length", LENGTH_BANDS)
         out["by_quality"] = _bands(c, "ctx_quality", QUALITY_BANDS)
         config = settings_file.active()

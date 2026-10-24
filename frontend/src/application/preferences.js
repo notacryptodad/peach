@@ -198,6 +198,7 @@ preferencesState.SRCICON = {
   ...Object.fromEntries(Object.entries(MEDIA_SOURCE_ICONS).map(([location,mark])=>
     [location,mark.startsWith('data:')?`<img class="source-icon" src="${mark}" alt="">`:icon(mark)])),
   online:icon('rss'),
+  external:icon('link'),
 };
 preferencesState.srcBadge = (loc,cost,cls)=>{const label=`${LOC[loc]||loc}${cost==='metered'?' · 计费':''}`;
   return `<span class="${cls||'src'} ${cost==='metered'?'metered':'free'}" title="${esc(label)}" aria-label="${esc(label)}">`

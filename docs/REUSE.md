@@ -317,7 +317,11 @@ MGS 专属发行先查自营商品目录，Prestige 番号复用 `metadata_route
 
 ## 口味看板
 
-口味看板复用 `preference_profile`、`preference_score` 与 `javdb_public.PublicAPI.search_movies`（`/v2/search` 一页，不另写客户端）。详情补齐沿用 `PublicAPI.movie` 的身份核对、3 秒间隔、请求预算和磁盘快照。页面放在现有口味页顶部，空态与完成设置沿用 `EmptyState`、首启表单和 `/taste`。无新增依赖，不写 ledger。全目录分页仍未做，见 [JAV 发现](JAV_DISCOVERY.md)。
+口味看板复用 `preference_profile`、`preference_score` 与 `javdb_public.PublicAPI.search_movies`（`/v2/search` 一页，不另写客户端）。详情补齐沿用 `PublicAPI.movie` 的身份核对、3 秒间隔、请求预算和磁盘快照。页面放在现有口味页顶部，空态与完成设置沿用 `EmptyState`、首启表单和 `/taste`。多名使用者复用已有 `profile` 表和 `profile_id`，不新建账号体系，见 ADR-0114。无新增依赖。全目录分页仍未做，见 [JAV 发现](JAV_DISCOVERY.md)。
+
+## 外部链接
+
+外部链接复用已有 `asset` 行和 `profile`。`location='external'`、`medium='link'`、`path` 为页面地址，扫描与视频处理不领取这一来源。取页复用 `httpx`、`public_https_url`、`resolves_publicly` 与 `body_text`，只保留最多 256 KiB 页头。公开目录检索复用 `PublicAPI.search_movies` 的一页结果，不调用 `magnets`，也不把媒体写入磁盘。关注演员的收录走同一页搜索。标星写入 `asset_preference`，标签写入 `asset_tag` 与 `asset_entity`，口味沿用 `preference_profile`。首页网格复用 `/api/items` 与卡片封面；封面地址交给浏览器加载。管理页放在 `/taste`，沿用 `EmptyState`、`Input` 与 `Button`。片源播放复用 `open_upstream`、`rewrite_hls` 和预览播放器 `mountPreviewPlayer`，只转发页面里已经写明的媒体地址，不把字节写入持久缓存。无新增依赖。云下载、想要清单、人物页番号订阅和本机 STRM 文件各自服务另一条路径，见 ADR-0115、ADR-0116、ADR-0117。
 
 ## 复用决策门槛
 

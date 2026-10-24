@@ -14,14 +14,15 @@ import * as legacyUi from '@peach/legacy/ui';
 import { JOB_RUNNING_POLL_MS } from '../../src/react/background-job';
 import { queryClient } from '../../src/react/query';
 import {
-  DEFAULT_WINDOW, FLOW_VIEWBOX, flowGraph, historySpan, prefetchTaste, radarRows, RANK_MAX, rankDetail,
-  TASTE_BOARD_URL, TASTE_IMPORT_URL, TASTE_REFRESH_URL, TASTE_SOURCE_URL, TASTE_URL, tasteDimensions, topScores,
+  DEFAULT_WINDOW, EXTERNAL_LINK_SEARCH_URL, EXTERNAL_LINKS_URL, FLOW_VIEWBOX, flowGraph, historySpan,
+  linkMatches, prefetchTaste, radarRows, RANK_MAX, rankDetail,
+  PROFILE_ACTIVE_URL, PROFILES_URL, TASTE_BOARD_URL, TASTE_IMPORT_URL, TASTE_REFRESH_URL, TASTE_SOURCE_URL, TASTE_URL, tasteDimensions, topScores,
   type TasteData, type TasteJob,
 } from '../../src/react/taste/taste';
 import { TasteRadar } from '../../src/react/taste/charts';
 import { TastePage } from '../../src/react/taste/taste-page';
 
-import { choose, click, mount, mountRoot, settle } from './render';
+import { choose, click, mount, mountRoot, settle, type } from './render';
 
 // 客户端是模块级的单例（所有 React 根共用一个），用例之间不清就互相喂数据。
 afterEach(() => queryClient.clear());
@@ -109,7 +110,38 @@ function serve(plan: Plan) {
   const tastes = [...(plan.taste ?? [payload()])];
   const jobs = [...(plan.job ?? [{ status: 'idle' } as TasteJob])];
   const next = <T,>(queue: T[]): T => (queue.length > 1 ? queue.shift()! : queue[0]!);
+  const links: { items: Array<Record<string, unknown>> } = { items: [] };
   const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+    const target = String(input);
+    if (target.startsWith(EXTERNAL_LINK_SEARCH_URL)) {
+      return ok({
+        mode: 'catalog',
+        hits: [{ url: 'https://javdb.com/v/Exact', title: '目录作品', code: 'EXM-001', studio: '示例厂牌', performers: [], keywords: [] }],
+        preview: null,
+      });
+    }
+    if (target.startsWith(EXTERNAL_LINKS_URL)) {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { action?: string; url?: string; liked?: boolean; title?: string; code?: string };
+        if (body.action === 'add') {
+          links.items = [{
+            id: 1, asset_id: 2, url: body.url, title: body.title || '示例页面', description: '一段说明',
+            site: 'example.com', thumbnail_url: '', code: body.code || '', studio: '', creator: '',
+            release_date: '', liked: false, tags: ['人妻'], href: body.url,
+          }];
+        }
+        if (body.action === 'star') {
+          links.items = links.items.map((item) => ({ ...item, liked: Boolean(body.liked) }));
+        }
+        return ok({ ok: true });
+      }
+      return ok({ items: links.items, limit: 200 });
+    }
+    if (input === PROFILES_URL && !init?.method) {
+      return ok({ viewers: [{ id: 'local-default', name: 'Default', active: true }], limit: 8 });
+    }
+    if (input === PROFILES_URL) return ok({ id: 'local-aaaa', name: String(init?.body ?? ''), active: true });
+    if (input === PROFILE_ACTIVE_URL) return ok({ id: 'local-aaaa', name: '甲', active: true });
     if (input === TASTE_BOARD_URL) return ok(plan.board ?? thinBoard);
     if (input === TASTE_IMPORT_URL) return ok(plan.imported ?? { dashboard: payload() });
     if (input === TASTE_SOURCE_URL) return ok(plan.removed ?? { removed: 1, dashboard: payload() });
@@ -270,7 +302,7 @@ it('浏览器画像的雷达、排行与浏览活跃热力图都按这一份数�
 
 it('换分析范围时留住上一份：这一屏不退回等待态，只等新的数回来', async () => {
   const { fetcher, host } = await open({ taste: [payload(), HOLD] });
-  await choose(host.querySelector('[aria-haspopup="listbox"]'), '最近 7 天');
+  await choose(host.querySelector('[aria-label="分析范围"]'), '最近 7 天');
   await settle();
   expect(tasteGets(fetcher).map(([input]) => String(input)))
     .toEqual([`${TASTE_URL}?window=all`, `${TASTE_URL}?window=7d`]);
@@ -349,7 +381,7 @@ it('导入之后回到导入前看过的范围，读的是导入后的数', asyn
     ],
     imported: { dashboard: payload({ summary: { history_visits: 4321, history_sources: 3 } }) },
   });
-  await choose(host.querySelector('[aria-haspopup="listbox"]'), '最近 90 天');
+  await choose(host.querySelector('[aria-label="分析范围"]'), '最近 90 天');
   await settle();
   expect(host.textContent).toContain('111');
 
@@ -358,7 +390,7 @@ it('导入之后回到导入前看过的范围，读的是导入后的数', asyn
   await settle();
   expect(host.textContent).toContain('4,321');
 
-  await choose(host.querySelector('[aria-haspopup="listbox"]'), '最近 90 天');
+  await choose(host.querySelector('[aria-label="分析范围"]'), '最近 90 天');
   await settle();
   /* 换范围一律重取：缓存里那份是导入前的，直接拿来用就是把导入的结果藏起来。
      导入之后那一趟 `window=all` 也在这里——回的是同一份，它确认的是服务端也已经落地。 */
@@ -421,6 +453,31 @@ it('口味看板在页首展示在线命中，薄口味时给出入口', async (
   expect(matched.host.textContent).toContain('示例作品');
   expect(matched.host.querySelector('a[href="/works/EXM-001"]')).not.toBeNull();
   expect(matched.host.textContent).toContain('出演者偏好 · 演示女优');
+  expect(matched.host.querySelector('[aria-label="使用者"]')).not.toBeNull();
+  expect(matched.host.textContent).toContain('添加使用者');
+});
+
+it('外部链接收录页面地址，标星后仍留在当前清单', async () => {
+  const sample = {
+    id: 1, asset_id: 2, url: 'https://example.com/work', title: '示例页面', description: '',
+    site: 'example.com', thumbnail_url: '', code: '', studio: '', creator: '', release_date: '',
+    liked: false, tags: ['人妻'], href: 'https://example.com/work',
+  };
+  expect(linkMatches(sample, '人妻')).toBe(true);
+  expect(linkMatches(sample, '没有')).toBe(false);
+  const { host, fetcher, props } = await open();
+  expect(host.querySelector('section[aria-label="外部链接"]')?.textContent).toContain('还没有外部链接');
+  await type(host.querySelector<HTMLInputElement>('[aria-label="页面地址或检索词"]'), 'https://example.com/work');
+  await click([...host.querySelectorAll('button')].find((node) => node.textContent === '添加'));
+  await settle();
+  expect(host.textContent).toContain('示例页面');
+  expect(host.querySelector('a[href="https://example.com/work"]')).not.toBeNull();
+  const addCall = fetcher.mock.calls.find(([target, init]) => String(target) === EXTERNAL_LINKS_URL && init?.method === 'POST');
+  expect(JSON.parse(String(addCall?.[1]?.body))).toMatchObject({ action: 'add', url: 'https://example.com/work' });
+  await click([...host.querySelectorAll('button')].find((node) => node.textContent === '标星'));
+  await settle();
+  expect(props.toast).toHaveBeenCalledWith('已标星');
+  expect(host.textContent).toContain('已标星');
 });
 
 it('卸载之后不再敲库：后台那一趟的轮询跟着这棵根走', async () => {

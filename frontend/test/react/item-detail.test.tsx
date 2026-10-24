@@ -249,6 +249,8 @@ describe('身份与标签', () => {
     expect(mediaGate(item(1, { location: 'online', follow_item_id: 5 } as Partial<DetailItem>), false)).toBe('');
     expect(mediaGate(item(1, { cost: 'metered' }), false)).toBe('metered');
     expect(mediaGate(item(1), false)).toBe('');
+    expect(mediaGate(item(1, { location: 'external' }), false)).toBe('external');
+    expect(mediaGate(item(1, { location: 'external', playable: true }), false)).toBe('');
     expect(mediaGate(item(1, { name: 'ABC-123.ISO' }), false)).toBe('disc');
   });
 });

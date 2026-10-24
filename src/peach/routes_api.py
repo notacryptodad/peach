@@ -25,7 +25,7 @@ from browserexport.common import BrowserexportError
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
-from . import push_discovery, web_contract, web_tasks
+from . import profiles, push_discovery, web_contract, web_tasks
 from .field_owners import RevisionConflict
 from .folder_rules import FolderRuleConflict
 from .interaction import reveal_path
@@ -178,6 +178,14 @@ async def taste_import(
     browser sends the file bytes as-is and provides only a display filename header.
     """
     contract = request.app.state.web_contract
+    token = profiles.bind_active(request.cookies.get(profiles.PROFILE_COOKIE, ""))
+    try:
+        return await _taste_import(request, contract)
+    finally:
+        profiles.reset_active(token)
+
+
+async def _taste_import(request: Request, contract):
     maximum = 1024 * 1024 * 1024
     try:
         declared = int(request.headers.get("content-length") or 0)
@@ -210,13 +218,14 @@ async def taste_import(
         else:
             os.replace(temporary, target)
             imported_target = target
+        _profile_id, store, manifest_path = profiles.viewer_files(contract)
         results = await asyncio.to_thread(
-            import_history_exports, [target], contract.taste_history_store,
+            import_history_exports, [target], store,
         )
         analysis = await asyncio.to_thread(
-            analyze_history, contract.taste_history_store, contract.taste_history_root,
+            analyze_history, store, contract.taste_history_root,
         )
-        write_manifest(contract.taste_history_manifest, results, analysis)
+        write_manifest(manifest_path, results, analysis)
         contract.cache_bust()
         return {
             "refresh": results,
@@ -291,10 +300,20 @@ def _conflict(error: TaskRunConflict) -> JSONResponse:
         status_code=409)
 
 
+def _viewer_response(payload: dict) -> JSONResponse:
+    response = JSONResponse(payload)
+    viewer_id = str(payload.get("id") or "")
+    if viewer_id:
+        response.set_cookie(profiles.PROFILE_COOKIE, viewer_id, max_age=365 * 86400,
+                            httponly=True, samesite="lax", path="/")
+    return response
+
+
 @router.get("/api/{route:path}")
 def api_get(request: Request, route: str, args: dict[str, str] = Depends(require_auth)):
     state = request.app.state
     sync = state.sync
+    token = profiles.bind_active(request.cookies.get(profiles.PROFILE_COOKIE, ""))
     try:
         payload = web_contract.dispatch_api_get(
             state.web_contract, f"/api/{route}", args)
@@ -314,6 +333,8 @@ def api_get(request: Request, route: str, args: dict[str, str] = Depends(require
     except Exception:
         LOGGER.exception("unhandled GET contract error for /api/%s", route)
         return JSONResponse({"error": "internal server error"}, status_code=500)
+    finally:
+        profiles.reset_active(token)
 
 
 @router.post("/api/{route:path}")
@@ -325,6 +346,14 @@ def api_post(
 ):
     sync = request.app.state.sync
     route_path = f"/api/{route}"
+    token = profiles.bind_active(request.cookies.get(profiles.PROFILE_COOKIE, ""))
+    try:
+        return _api_post(request, route, body, sync, route_path)
+    finally:
+        profiles.reset_active(token)
+
+
+def _api_post(request, route, body, sync, route_path):
     if (sync is not None and sync.read_only
             and route_path not in web_contract.READ_ONLY_POST_ROUTES):
         # 非写入端或冲突状态都只读；继续写只会产生无法自动合并的分叉。
@@ -339,8 +368,11 @@ def api_post(
             status_code=409,
         )
     try:
-        return web_contract.dispatch_api_post(
+        payload = web_contract.dispatch_api_post(
             request.app.state.web_contract, route_path, body)
+        if route_path in {"/api/profiles", "/api/profiles/active"} and isinstance(payload, dict):
+            return _viewer_response(payload)
+        return payload
     except TaskRunConflict as exc:
         return _conflict(exc)
     except UpdateBusy as exc:

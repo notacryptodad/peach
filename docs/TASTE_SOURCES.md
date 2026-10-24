@@ -35,3 +35,17 @@ API 的 `summary.bookmarks` 为范围内去重书签数，来源行的 `bookmark
 ## 口味看板
 
 `GET /api/taste/board` 用已有偏好维度生成摘要：出演者、创作者、标签、厂牌、系列、发行年代和时长。有出演者、标签、厂牌或系列信号时，向 JavDB 公开目录做最多 3 次关键词检索，复用匿名 `PublicAPI`，无 API Key，主机间隔 3 秒，单次请求预算 16 次、2 MiB、45 秒。命中按偏好相关度排序，只保留对得上这些维度的作品，最多 12 部。没有这些信号时不访问目录，页面给出读取浏览记录、添加关注，以及稍后添加本地媒体库。检索失败保留摘要，作品列表为空。
+
+同一台 Peach 可以有多名使用者，见 ADR-0114。`GET /api/profiles` 列出他们，`POST /api/profiles` 添加，`POST /api/profiles/active` 切换并写入 `peach_profile`。默认使用者继续用原来的浏览历史库；其他人各自一份。喜欢按 `profile_id` 分开。整库收藏、共享播放计数和关注不计入其他使用者的口味。
+
+## 外部链接
+
+`GET /api/external-links` 列出当前使用者的外部链接，`q` 按标题、地址、站点、说明、番号、厂牌和标签筛选。`GET /api/external-links/search?q=` 在检索词是页面地址时只读取页头元数据；是番号或关键词时复用 JavDB 公开目录的一页检索。`POST /api/external-links` 用 `action` 区分 `add`、`update`、`remove`、`star`、`tag`。
+
+收录写入 `external_link`，并保证一条 `location='external'`、`medium='link'` 的 asset。`path` 是规范化后的 HTTPS 页面地址。媒体文件留在原地址，不进云下载。标星写入当前使用者的 `asset_preference`。使用者添加的标签写入 `asset_tag` 与 `asset_entity`，隐藏按 `profile_id`。页面关键词只保留当前词表里的内容标签。口味把这些作品算进当前使用者自己的清单；其他使用者的链接不计入。打开作品使用记录的地址。页面在 `/taste`。
+
+片源站点按当前使用者记在 `external_source`，每人最多 20 个域名。`POST /api/external-links` 的 `source-add` 与 `source-remove` 维护这份名单。播放时 `GET /api/external-links/playback?id=` 重新读取页面，只采用页面里已经写明的公网 HTTPS 媒体地址，再由 `/link-play/{id}` 转给播放器。上游地址不返回给浏览器，媒体字节不写入媒体库。页面里没有写明播放地址时，详情和清单提供打开原页面。见 ADR-0116。
+
+关注演员记在 `external_actor`，每人最多 40 个名字。`actor-add` 与 `actor-remove` 维护这份名单。`actor-populate` 用演员名调用 `PublicAPI.search_movies` 的一页结果，把标题、番号、厂牌、出演者、词表内标签、封面地址和 `https://javdb.com/v/{id}` 写入当前使用者的外部链接。重复地址跳过。不调用 `movie` 或 `magnets`。
+
+当前使用者的这些作品进入 `/api/items`、`/api/item` 和 `/api/facets`。封面使用保存的地址，由浏览器加载。另一位使用者的链接不进入当前网格。选中本地媒体库时，外部作品不在该库路径下。见 ADR-0117 与[外部馆藏](EXTERNAL_LIBRARY.md)。

@@ -53,6 +53,7 @@ import { busyProps } from '../settings/use-action';
 import { ActivityHeat } from '../charts/heat-card';
 import { CreatorSankey, RankedBars, TasteRadar } from './charts';
 import { BrowserSources, SOURCE_TILE } from './browser-sources';
+import { ExternalLinks } from './external-links';
 import { TasteBoard } from './taste-board';
 import {
   DEFAULT_WINDOW, fetchTaste, fetchTasteJob, historySpan, IDLE_POLL_MS, importTasteExport, radarRows,
@@ -454,6 +455,7 @@ export function TastePage(props: TasteProps) {
     return (
       <Page>
         <TasteBoard />
+        <ExternalLinks toast={toast} />
         <Note tone="error" title="口味分析读取失败">
           {taste.error ? errorMessage(taste.error) : '读取口味分析失败'}
         </Note>
@@ -477,6 +479,7 @@ export function TastePage(props: TasteProps) {
   return (
     <Page>
       <TasteBoard />
+      <ExternalLinks toast={toast} />
       <Tabs selectedKey={evidence} onSelectionChange={(key) => setEvidence(String(key))}
         className="flex flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
