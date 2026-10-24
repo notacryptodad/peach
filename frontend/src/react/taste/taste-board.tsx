@@ -1,15 +1,20 @@
 /* 口味看板：偏好维度摘要，以及按这些维度从公开目录取回的作品。 */
+import { useState } from 'react';
 import { RiCompassLine } from '@remixicon/react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
-import { ButtonLink } from '@/components/base/buttons/button';
+import { Button, ButtonLink } from '@/components/base/buttons/button';
+import { Select, SelectItem } from '@/components/base/select/select';
+import { Input } from '@/components/base/input/input';
 
 import { errorMessage } from '../../api';
 import { cardClass } from '../components/card';
 import { EmptyState } from '../components/empty-state';
 import { Note } from '../components/note';
+import { queryClient } from '../query';
 import {
-  fetchTasteBoard, TASTE_BOARD_KEY, type TasteBoard as TasteBoardData, type TasteBoardWork,
+  activateViewer, createViewer, fetchTasteBoard, fetchViewers, TASTE_BOARD_KEY, VIEWERS_KEY,
+  type TasteBoard as TasteBoardData, type TasteBoardWork,
 } from './taste';
 
 const CARD = `${cardClass()} flex flex-col gap-4`;
@@ -30,6 +35,47 @@ function WorkCard({ work }: { work: TasteBoardWork }) {
         </span>
       </a>
     </article>
+  );
+}
+
+async function refreshViewerTaste() {
+  await queryClient.invalidateQueries({ queryKey: VIEWERS_KEY });
+  await queryClient.invalidateQueries({ queryKey: ['taste'] });
+}
+
+function Viewers() {
+  const [name, setName] = useState('');
+  const list = useQuery({
+    queryKey: VIEWERS_KEY, retry: false, refetchOnWindowFocus: false,
+    queryFn: ({ signal }) => fetchViewers(signal),
+  });
+  const activate = useMutation({ mutationFn: activateViewer, onSuccess: refreshViewerTaste });
+  const create = useMutation({
+    mutationFn: () => createViewer(name.trim()),
+    onSuccess: async () => { setName(''); await refreshViewerTaste(); },
+  });
+  const viewers = list.data?.viewers ?? [];
+  const active = viewers.find((viewer) => viewer.active)?.id;
+  const message = activate.error || create.error;
+  if (!viewers.length && !message) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      {viewers.length ? (
+        <Select aria-label="使用者" selectedKey={active}
+          onSelectionChange={(key) => { if (key != null && String(key) !== active) activate.mutate(String(key)); }}>
+          {viewers.map((viewer) => <SelectItem key={viewer.id} id={viewer.id}>{viewer.name}</SelectItem>)}
+        </Select>
+      ) : null}
+      <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => {
+        event.preventDefault();
+        if (name.trim()) create.mutate();
+      }}>
+        <Input aria-label="新使用者名称" placeholder="新使用者名称" maxLength={40} value={name}
+          onChange={setName} className="min-w-0 grow" />
+        <Button type="submit" size="small" disabled={!name.trim() || create.isPending}>添加使用者</Button>
+      </form>
+      {message ? <Note tone="error">{errorMessage(message)}</Note> : null}
+    </div>
   );
 }
 
@@ -84,6 +130,7 @@ export function TasteBoard() {
   return (
     <section aria-label="口味看板" className={CARD}>
       <h2 className="text-title-2-medium text-text-primary">口味看板</h2>
+      <Viewers />
       {board.isPending ? (
         <div data-skeleton="" aria-busy="true" role="status" aria-label="正在读取口味看板"
           className="h-40 rounded-xl skeleton-sheen" />

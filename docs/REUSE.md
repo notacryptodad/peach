@@ -317,7 +317,7 @@ MGS 专属发行先查自营商品目录，Prestige 番号复用 `metadata_route
 
 ## 口味看板
 
-口味看板复用 `preference_profile`、`preference_score` 与 `javdb_public.PublicAPI.search_movies`（`/v2/search` 一页，不另写客户端）。详情补齐沿用 `PublicAPI.movie` 的身份核对、3 秒间隔、请求预算和磁盘快照。页面放在现有口味页顶部，空态与完成设置沿用 `EmptyState`、首启表单和 `/taste`。无新增依赖，不写 ledger。全目录分页仍未做，见 [JAV 发现](JAV_DISCOVERY.md)。
+口味看板复用 `preference_profile`、`preference_score` 与 `javdb_public.PublicAPI.search_movies`（`/v2/search` 一页，不另写客户端）。详情补齐沿用 `PublicAPI.movie` 的身份核对、3 秒间隔、请求预算和磁盘快照。页面放在现有口味页顶部，空态与完成设置沿用 `EmptyState`、首启表单和 `/taste`。多名使用者复用已有 `profile` 表和 `profile_id`，不新建账号体系，见 ADR-0114。无新增依赖。全目录分页仍未做，见 [JAV 发现](JAV_DISCOVERY.md)。
 
 ## 复用决策门槛
 

@@ -985,18 +985,22 @@ def _positive_behavior_score(row: dict, *, exclude_disliked: bool) -> float:
     return max(score, 0.0)
 
 
-def _peach_dashboard_evidence(connection: sqlite3.Connection, since: str | None, *, exclude_disliked: bool = False) -> dict[str, object]:
+def _peach_dashboard_evidence(connection: sqlite3.Connection, since: str | None, *, exclude_disliked: bool = False,
+                              profile_id: str = "local-default") -> dict[str, object]:
     from .entities import male_performer_ids
     excluded = male_performer_ids(connection)
     since_epoch = datetime.fromisoformat(since).timestamp() if since else None
     rows = connection.execute(
         "SELECT a.id,a.creator,a.studio,a.play_count,a.play_seconds,a.o_count,a.rating,"
         "a.feedback,a.last_played,COALESCE(p.liked,0) liked "
-        "FROM asset a LEFT JOIN asset_preference p ON p.asset_id=a.id AND p.profile_id='local-default' "
+        "FROM asset a LEFT JOIN asset_preference p ON p.asset_id=a.id AND p.profile_id=? "
         "WHERE COALESCE(a.play_count,0)>0 OR COALESCE(a.play_seconds,0)>0 "
         "OR COALESCE(a.o_count,0)>0 OR COALESCE(a.rating,0)>0 "
-        "OR a.feedback IN ('seen','dislike') OR COALESCE(p.liked,0)>0"
+        "OR a.feedback IN ('seen','dislike') OR COALESCE(p.liked,0)>0",
+        (profile_id,),
     ).fetchall()
+    if profile_id != "local-default":
+        rows = [row for row in rows if row["liked"]]
     assets: dict[int, dict[str, object]] = {}
     total_seconds = 0.0
     liked = disliked = 0
@@ -1334,11 +1338,13 @@ def build_taste_dashboard(
     *,
     since: str | None = None,
     exclude_disliked: bool = False,
+    profile_id: str = "local-default",
 ) -> dict[str, object]:
     """Build a privacy-bounded, read-only taste view from both evidence stores."""
     history = _history_dashboard_evidence(history_store, since)
     browser_performers = _linked_history_evidence(history_store, ledger_connection, since, history)
-    peach = _peach_dashboard_evidence(ledger_connection, since, exclude_disliked=exclude_disliked)
+    peach = _peach_dashboard_evidence(
+        ledger_connection, since, exclude_disliked=exclude_disliked, profile_id=profile_id)
     all_tags = [row for row in _rank_combined("tag", history["tags"], peach, limit=1000)
                 if row["name"] not in LENGTH_TAGS]
     all_creators = _rank_combined("creator", history["creators"], peach, limit=1000)

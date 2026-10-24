@@ -229,9 +229,11 @@ def _collect(connection, api, terms, strengths, names, evidence):
 def q_taste_board(contract, args=None, *, api=None) -> dict:
     """只读看板。没有可检索的口味词时不访问目录。"""
     del args
+    from .profiles import viewer_files
     api = PUBLIC_API if api is None else api
     with contract.read_connection() as connection:
-        strengths, names, evidence = preference_profile(connection, contract.taste_history_store)
+        _profile_id, store, _manifest = viewer_files(contract, connection)
+        strengths, names, evidence = preference_profile(connection, store)
         profile = _profile(strengths, names, evidence)
         terms = search_terms(strengths, names)
         if not terms:

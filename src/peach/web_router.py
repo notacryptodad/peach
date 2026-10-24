@@ -50,6 +50,7 @@ from .web_downloads import (q_downloads, w_download_cancel, w_download_postproce
                             w_download_submit)
 from .web_resource_search import q_resource_search
 from .web_jav_detail import q_jav_detail, q_jav_image, q_jav_resources, q_jav_reviews
+from .profiles import q_profiles, w_profile_activate, w_profile_create
 from .taste_online import q_taste_board
 from .web_jav_discovery import q_jav_discoveries
 from .web_feeds import (
@@ -243,9 +244,12 @@ def _get_search_history(contract, args):
 
 
 def _get_taste(contract, args):
+    from .profiles import viewer_files
     window = str(args.get("window") or "all")
+    with contract.read_connection() as connection:
+        profile_id = viewer_files(contract, connection)[0]
     return contract.cached_until_changed(
-        f"taste:{window}", lambda: q_taste(contract, {"window": window}),
+        f"taste:{profile_id}:{window}", lambda: q_taste(contract, {"window": window}),
         *taste_inputs(contract, window))
 
 
@@ -289,6 +293,7 @@ def _post_setup_tutorial_progress(contract):
     实测那一套在真实馆藏上要二十多秒、三百多 KB，而这里几条 COUNT 与几列投影不到半秒。
     复核条数仍取自复核页的同一份缓存：那一栏的数字必须和 `/review` 页上的一致，口径只能有一份。
     """
+    from .profiles import viewer_files
     where, params = catalog_filter(contract, {})
     with contract.read_connection() as connection:
         total = connection.execute(
@@ -296,11 +301,12 @@ def _post_setup_tutorial_progress(contract):
         follow_sources = [
             {"provider": row[0], "enabled": bool(row[1])}
             for row in connection.execute("SELECT provider,enabled FROM follow_source")]
+        taste_store = viewer_files(contract, connection)[1]
     return {
         "library": {"total": int(total)},
         "scraping": {"sources": [{key: source[key] for key in POST_SETUP_SCRAPING_FIELDS}
                                  for source in q_scraping(contract, {})["sources"]]},
-        "taste": {"history_sources": history_source_count(contract.taste_history_store)},
+        "taste": {"history_sources": history_source_count(taste_store)},
         "follow": {"sources": follow_sources},
         "credentials": {"providers": [{key: row[key] for key in POST_SETUP_CREDENTIAL_FIELDS}
                                       for row in q_follow_credentials(contract, {})["providers"]]},
@@ -385,6 +391,7 @@ GET_HANDLERS = {
     "/api/search-history": _get_search_history,
     "/api/taste": _get_taste,
     "/api/taste/board": _get_taste_board,
+    "/api/profiles": q_profiles,
     "/api/review": _get_review,
     "/api/post-setup-tutorial": _get_post_setup_tutorial,
 }
@@ -433,6 +440,8 @@ POST_HANDLERS = {
     "/api/search-history": w_search_history,
     "/api/taste/refresh": w_taste_refresh,
     "/api/taste/source": w_taste_source,
+    "/api/profiles": w_profile_create,
+    "/api/profiles/active": w_profile_activate,
     "/api/trash/empty": _post_empty_trash,
     "/api/organize/preview": w_organize_preview,
     "/api/organize/apply": w_organize_apply,
@@ -462,7 +471,7 @@ READ_ONLY_POST_ROUTES = frozenset({
     "/api/custom-metadata",
     "/api/scraping/settings", "/api/scraping/check",
     "/api/follow/resolve", "/api/follow/credential",
-    "/api/taste/refresh", "/api/taste/source", "/api/resource-sync/scan",
+    "/api/taste/refresh", "/api/taste/source", "/api/profiles/active", "/api/resource-sync/scan",
     "/api/links/check",
     # 修复只写 `transcode_root` 里的边车，那是本机缓存，不是账本。
     "/api/media-repair",

@@ -20,6 +20,8 @@ import { playedFor } from '../stats/stats';
 
 export const TASTE_URL = '/api/taste';
 export const TASTE_BOARD_URL = '/api/taste/board';
+export const PROFILES_URL = '/api/profiles';
+export const PROFILE_ACTIVE_URL = '/api/profiles/active';
 export const TASTE_REFRESH_URL = '/api/taste/refresh';
 export const TASTE_IMPORT_URL = '/api/taste/import';
 export const TASTE_SOURCE_URL = '/api/taste/source';
@@ -28,6 +30,22 @@ export const TASTE_SOURCE_URL = '/api/taste/source';
 export const tasteKey = (window: string) => ['taste', window] as const;
 /** 口味看板：偏好摘要和在线目录命中。 */
 export const TASTE_BOARD_KEY = ['taste', 'board'] as const;
+export const VIEWERS_KEY = ['taste', 'viewers'] as const;
+
+export interface Viewer {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface ViewerList {
+  viewers: Viewer[];
+  limit: number;
+}
+
+export const fetchViewers = (signal?: AbortSignal) => apiGet<ViewerList>(PROFILES_URL, signal);
+export const createViewer = (name: string) => apiSend<Viewer>(PROFILES_URL, { name });
+export const activateViewer = (id: string) => apiSend<Viewer>(PROFILE_ACTIVE_URL, { id });
 
 export interface TasteBoardItem {
   name: string;
