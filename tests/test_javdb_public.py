@@ -152,6 +152,16 @@ class PublicProtocolTests(unittest.TestCase):
 
         return PublicAPI(transport, sleeper=lambda _: None)
 
+    def test_catalog_search_uses_one_page_and_does_not_open_each_detail(self):
+        api = self.api()
+        rows = api.search_movies("演示女优")
+        self.assertEqual([row["number"] for row in rows], ["EXM-001", "EXM-002"])
+        self.assertTrue(any("/v2/search" in request.url and "q=" in request.url for request in self.requests))
+        self.assertFalse(any("/v4/movies/" in request.url for request in self.requests))
+        again = api.search_movies("演示女优")
+        self.assertEqual(again, rows)
+        self.assertEqual(sum("/v2/search" in request.url for request in self.requests), 1)
+
     def test_exact_work_is_cached_and_signed_without_credentials(self):
         api = self.api()
         self.assertEqual(api.movie('EXM001')['number'], 'EXM-001')

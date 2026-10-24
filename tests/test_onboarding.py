@@ -629,7 +629,7 @@ class SetupJsonContractTests(_SetupHttpCase):
         self.assertEqual([item["default"] for item in questions], [question.default for question in asked])
         self.assertEqual([item["label"] for item in questions], ["数据目录", "媒体库", "谁可以访问", "端口", "局域网访问地址"])
         by_key = {item["key"]: item for item in questions}
-        self.assertEqual([key for key, item in by_key.items() if not item["required"]], ["host"])
+        self.assertEqual([key for key, item in by_key.items() if not item["required"]], ["media_dir", "host"])
         self.assertEqual([key for key, item in by_key.items() if not item["advanced"]], ["media_dir"])
         self.assertEqual(by_key["host"]["options"], [{"value": "2", "label": "同一局域网的设备"},
                                                      {"value": "1", "label": "只有这台电脑"}])
@@ -647,10 +647,13 @@ class SetupJsonContractTests(_SetupHttpCase):
             self.assertEqual(len(by_key["media_dir"]["help"]), 1)
         else:
             self.assertIsNone(data["media_root"])
-            self.assertIn("本机文件夹是这台电脑读取媒体的位置", by_key["media_dir"]["help"][-1])
+            self.assertEqual(
+                by_key["media_dir"]["help"][-1],
+                "填写这台设备实际读取媒体的文件夹；Docker 部署填写容器内目录，例如 /media。",
+            )
         self.assertEqual(data["cloud"]["link"]["url"], "https://www.clouddrive2.com/help.html")
-        # 默认对局域网开放，所以访问密码开关第一次出现就开着；扫描默认勾上，导入历史默认不勾。
-        self.assertEqual((data["access_enabled"], data["scan_now"], data["history_guide"]), (True, True, False))
+        # 默认对局域网开放，所以访问密码开关第一次出现就开着；扫描默认不勾，导入历史默认勾上。
+        self.assertEqual((data["access_enabled"], data["scan_now"], data["history_guide"]), (True, False, True))
 
     def test_setup_preserves_explicit_proxy_protection_for_a_mounted_source(self):
         rows = self._rows(self.media, location="onedrive")
@@ -821,6 +824,14 @@ class SetupJsonContractTests(_SetupHttpCase):
         policy = access.load(self.data_root / "secrets" / "access.json")
         self.assertEqual(policy["mode"], "password")
         self.assertNotIn("correct-password", response.text, "回话里不带密码")
+
+    def test_setup_can_finish_without_a_media_library(self):
+        data = self._submit(media_dir=[], scan_now=False, history_guide=True)
+        self.assertTrue(data["url"].endswith("/taste?onboarding=1"))
+        self.assertFalse(data["scan_requested"])
+        loaded = self._loaded()
+        self.assertEqual(loaded.locations, {})
+        self.assertFalse((self.data_root / "state" / onboarding.SCAN_REQUEST_NAME).exists())
 
     def test_the_history_guide_without_a_scan_leads_to_the_taste_page(self):
         with mock.patch('peach.web_stats.w_taste_refresh') as refresh:

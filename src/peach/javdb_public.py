@@ -330,6 +330,16 @@ class PublicAPI:
                 self.failures.pop(removed, None)
         return snapshot
 
+    def search_movies(self, query: str, *, limit: int = 10) -> list[dict]:
+        """按关键词取公开目录的一页作品，不展开每部详情。"""
+        text = " ".join(str(query or "").split())
+        if not text or len(text) > 40:
+            raise ValueError("检索词无效")
+        bounded = max(1, min(int(limit), PAGE_SIZE))
+        key = "search:" + hashlib.sha256(f"{text.casefold()}:{bounded}".encode()).hexdigest()
+        return self._cached(key, lambda: self._rows(
+            "/v2/search", "movies", {"q": text, "type": "movie", "page": 1})[:bounded])
+
     def movie(self, code: str, *, refresh=False) -> dict:
         canonical = normalise_code_key(code)
 

@@ -1166,7 +1166,7 @@ class WebDataTests(unittest.TestCase):
             "/api/taste/refresh",
             "/api/links/prune", "/api/resource-sync/apply",
             "/api/follow/tags", "/api/follow/authors",
-            "/api/taste", "/api/settings", "/api/links", "/api/organize", "/api/orphan-records",
+            "/api/taste", "/api/taste/board", "/api/settings", "/api/links", "/api/organize", "/api/orphan-records",
             "/api/feeds", "/api/feeds/check", "/api/feeds/discoveries", "/api/feeds/lookup",
             "/api/downloads", "/api/resources/search",
             "/api/wants", "/api/wants/magnets",

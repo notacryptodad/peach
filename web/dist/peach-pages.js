@@ -19617,17 +19617,17 @@ function Tm({ done: e }) {
 		return () => clearTimeout(n);
 	}, [e.redirect]), /* @__PURE__ */ (0, z.jsxs)(wt, {
 		title: "设置完成",
-		lede: "正在启动馆藏。",
+		lede: e.history_guide ? "正在打开口味看板。" : "正在启动馆藏。",
 		children: [
 			/* @__PURE__ */ (0, z.jsx)("p", {
 				className: "text-body-regular text-text-primary",
-				children: e.restored ? "已连接已有数据目录。" : e.scan_requested ? "首次扫描已排队，在后台整理媒体库，期间可以照常使用 Peach。" : "稍后在配置页开始扫描媒体库。"
+				children: e.restored ? "已连接已有数据目录。" : e.scan_requested ? "首次扫描已排队，在后台整理媒体库，期间可以照常使用 Peach。" : e.history_guide ? "接下来在口味页读取浏览记录。本地媒体库可以稍后添加。" : "本地媒体库可以在配置页添加。"
 			}),
 			/* @__PURE__ */ (0, z.jsx)(Ct, {
 				ref: t,
 				href: e.url,
 				className: "self-start",
-				children: e.history_guide ? "导入浏览器历史记录" : "进入 Peach"
+				children: e.history_guide ? "打开口味看板" : "进入 Peach"
 			}),
 			/* @__PURE__ */ (0, z.jsx)(Sm, {
 				summary: "运行信息",
@@ -20961,7 +20961,7 @@ function Og({ setup: e, onDone: t }) {
 		root: "",
 		cost: e.media_source_default === "local" ? "free" : ""
 	}), o = yg({
-		initial: () => [a(n?.default ?? "")],
+		initial: () => [a(n?.required === !1 ? "" : n?.default ?? "")],
 		blank: () => a(),
 		pickFolder: Qp,
 		describe: $p,
@@ -20978,14 +20978,14 @@ function Og({ setup: e, onDone: t }) {
 		[e]: t
 	})), se = async (e) => {
 		if (e.preventDefault(), O) return;
-		let n = o.rows.findIndex((e) => !e.cost);
-		if (n >= 0) {
-			j(!0), requestAnimationFrame(() => te.current?.querySelector(`[data-media-read-policy="${n}"] button`)?.focus());
+		let i = o.rows.filter((e) => e.path.trim()), a = n?.required === !1 && i.length === 0, c = a ? -1 : o.rows.findIndex((e) => !e.cost);
+		if (c >= 0) {
+			j(!0), requestAnimationFrame(() => te.current?.querySelector(`[data-media-read-policy="${c}"] button`)?.focus());
 			return;
 		}
 		k(!0), D("");
-		let i = {
-			media_dir: o.rows,
+		let f = {
+			media_dir: a ? [] : n?.required === !1 ? i : o.rows,
 			access_enabled: l,
 			scan_now: h,
 			history_guide: _,
@@ -20994,13 +20994,13 @@ function Og({ setup: e, onDone: t }) {
 				errors: b.errors
 			} } : {}
 		};
-		for (let e of r) ae(e) && (i[e.key] = s[e.key] ?? "");
-		l && Object.assign(i, {
+		for (let e of r) ae(e) && (f[e.key] = s[e.key] ?? "");
+		l && Object.assign(f, {
 			access_password: d,
 			access_confirm: p
 		});
 		try {
-			t(await Xp(i));
+			t(await Xp(f));
 		} catch (e) {
 			if (e instanceof qp && e.status === 400 && e.errors) {
 				let t = e.errors, { rows: n, table: r } = Tg(t.media_dir, o.rows.length);
@@ -21073,10 +21073,13 @@ function Og({ setup: e, onDone: t }) {
 				children: [
 					/* @__PURE__ */ (0, z.jsxs)(Et, {
 						id: "setup-media-title",
-						children: [n.label, /* @__PURE__ */ (0, z.jsx)("span", {
+						children: [n.label, n.required ? /* @__PURE__ */ (0, z.jsx)("span", {
 							"aria-hidden": !0,
 							className: "ml-0.5 text-text-error-primary",
 							children: "*"
+						}) : /* @__PURE__ */ (0, z.jsx)("span", {
+							className: "ml-2 text-body-2-regular text-text-tertiary",
+							children: "可选"
 						})]
 					}),
 					w ? /* @__PURE__ */ (0, z.jsx)(vm, { children: w }, N) : null,
@@ -21183,33 +21186,30 @@ function Og({ setup: e, onDone: t }) {
 						id: "setup-options-title",
 						children: "完成设置后"
 					}),
-					/* @__PURE__ */ (0, z.jsxs)("div", {
-						className: "flex flex-col gap-1.5",
-						children: [/* @__PURE__ */ (0, z.jsx)(kp, {
-							isSelected: h,
-							onChange: g,
-							children: Eg(le)
-						}), /* @__PURE__ */ (0, z.jsx)(_m, { children: "读取已有 NFO 和封面，采集缺失资料。符合自动规则的资料会在处理完成后保存到数据库，其余资料留待确认。" })]
-					}),
 					/* @__PURE__ */ (0, z.jsxs)("section", {
 						"aria-labelledby": "setup-history-title",
-						className: "flex flex-col gap-1.5 border-t border-separator-border pt-4",
+						className: "flex flex-col gap-1.5",
 						children: [
-							/* @__PURE__ */ (0, z.jsxs)("h3", {
+							/* @__PURE__ */ (0, z.jsx)("h3", {
 								id: "setup-history-title",
-								className: "flex items-center gap-2 text-body-medium text-text-primary",
-								children: ["浏览器历史记录", /* @__PURE__ */ (0, z.jsx)("span", {
-									className: "text-body-2-regular text-text-tertiary",
-									children: "可选"
-								})]
+								className: "text-body-medium text-text-primary",
+								children: "浏览器历史记录"
 							}),
 							/* @__PURE__ */ (0, z.jsx)(kp, {
 								isSelected: _,
 								onChange: v,
 								children: "接下来导入浏览器历史记录"
 							}),
-							/* @__PURE__ */ (0, z.jsx)(_m, { children: "用于生成口味分析。完成设置后选择读取这台电脑，或导入其他设备的记录；也可稍后从「口味」进入。" })
+							/* @__PURE__ */ (0, z.jsx)(_m, { children: "用于生成口味看板。完成设置后读取这台电脑，或导入其他设备的记录。" })
 						]
+					}),
+					/* @__PURE__ */ (0, z.jsxs)("div", {
+						className: "flex flex-col gap-1.5 border-t border-separator-border pt-4",
+						children: [/* @__PURE__ */ (0, z.jsx)(kp, {
+							isSelected: h,
+							onChange: g,
+							children: Eg(le)
+						}), /* @__PURE__ */ (0, z.jsx)(_m, { children: "本地媒体库的扫描。读取已有 NFO 和封面，采集缺失资料。符合自动规则的资料会在处理完成后保存到数据库，其余资料留待确认。" })]
 					})
 				]
 			}),

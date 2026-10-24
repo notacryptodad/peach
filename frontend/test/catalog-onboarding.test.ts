@@ -18,13 +18,15 @@ describe('当前馆藏推荐', () => {
 });
 
 describe('馆藏与资料空状态', () => {
-  it('空首页提供添加内容与来源的真实入口', () => {
+  it('空首页先去口味看板，媒体库和关注仍可进入', () => {
     const html = catalogEmptyHtml({ configurable: true });
     expect(html).toContain('data-geist-empty-state');
+    expect(html).toContain('按口味找片');
     expect(html).toContain('data-empty-settings');
     expect(html).toContain('href="/subscriptions?tab=add"');
+    expect(html).toContain('class="geist-button primary" href="/taste"');
     expect(catalogEmptyHtml()).not.toContain('data-empty-settings');
-    expect(catalogEmptyHtml()).toContain('class="geist-button primary" href="/subscriptions?tab=add"');
+    expect(catalogEmptyHtml()).toContain('class="geist-button primary" href="/taste"');
     expect(catalogEmptyHtml({ configurable: true }).match(/class="geist-button primary"/g)).toHaveLength(1);
   });
   it('JAV 与筛选无结果可查看未筛选内容', () => {

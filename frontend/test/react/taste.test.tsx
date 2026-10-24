@@ -15,7 +15,7 @@ import { JOB_RUNNING_POLL_MS } from '../../src/react/background-job';
 import { queryClient } from '../../src/react/query';
 import {
   DEFAULT_WINDOW, FLOW_VIEWBOX, flowGraph, historySpan, prefetchTaste, radarRows, RANK_MAX, rankDetail,
-  TASTE_IMPORT_URL, TASTE_REFRESH_URL, TASTE_SOURCE_URL, TASTE_URL, tasteDimensions, topScores,
+  TASTE_BOARD_URL, TASTE_IMPORT_URL, TASTE_REFRESH_URL, TASTE_SOURCE_URL, TASTE_URL, tasteDimensions, topScores,
   type TasteData, type TasteJob,
 } from '../../src/react/taste/taste';
 import { TasteRadar } from '../../src/react/taste/charts';
@@ -88,9 +88,21 @@ interface Plan {
   job?: (TasteJob | Promise<TasteJob>)[];
   imported?: { dashboard: TasteData };
   removed?: { removed: number; dashboard: TasteData };
+  board?: Record<string, unknown>;
 }
 
 const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+
+const thinBoard = {
+  thin: true, status: 'thin', profile: { dimensions: [] }, recommendations: [],
+  source: { id: 'javdb-public', name: 'JavDB 公开目录', anonymous: true },
+  onboarding: {
+    title: '口味还不足以推荐作品',
+    detail: '读取浏览记录或导入书签后，这里会按出演者、标签、厂牌和系列去在线目录找作品。',
+    steps: [{ title: '添加关注', href: '/subscriptions?tab=add' }],
+  },
+  message: '',
+};
 
 /** 按端点分流的假 fetch：每个端点各有自己的队列，最后一份之后一直回它。 */
 function serve(plan: Plan) {
@@ -98,6 +110,7 @@ function serve(plan: Plan) {
   const jobs = [...(plan.job ?? [{ status: 'idle' } as TasteJob])];
   const next = <T,>(queue: T[]): T => (queue.length > 1 ? queue.shift()! : queue[0]!);
   const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
+    if (input === TASTE_BOARD_URL) return ok(plan.board ?? thinBoard);
     if (input === TASTE_IMPORT_URL) return ok(plan.imported ?? { dashboard: payload() });
     if (input === TASTE_SOURCE_URL) return ok(plan.removed ?? { removed: 1, dashboard: payload() });
     if (input === TASTE_REFRESH_URL) {
@@ -393,6 +406,21 @@ it('口味总结那几条各走各的出口：探索交信号，下一步交路�
   expect(props.onSignal.mock.calls).toEqual([['tag', '标签丙']]);
   await click(rowNamed(host, '去复核'));
   expect(props.navigate.mock.calls).toEqual([['/review']]);
+});
+
+it('口味看板在页首展示在线命中，薄口味时给出入口', async () => {
+  const first = await open();
+  expect(first.host.querySelector('section[aria-label="口味看板"] h2')?.textContent).toBe('口味看板');
+  expect(first.host.textContent).toContain('口味还不足以推荐作品');
+  await first.unmount();
+  const matched = await open({ board: {
+    thin: false, status: 'ready', profile: { dimensions: [{ kind: 'performer', label: '出演者偏好', items: [{ name: '演示女优', strength: 0.8 }] }] },
+    recommendations: [{ code: 'EXM-001', title: '示例作品', band: '强烈推荐', taste_score: 80, href: '/works/EXM-001', reasons: ['出演者偏好：演示女优（观看与反馈）'] }],
+    source: { name: 'JavDB 公开目录' }, onboarding: null, message: '',
+  } });
+  expect(matched.host.textContent).toContain('示例作品');
+  expect(matched.host.querySelector('a[href="/works/EXM-001"]')).not.toBeNull();
+  expect(matched.host.textContent).toContain('出演者偏好 · 演示女优');
 });
 
 it('卸载之后不再敲库：后台那一趟的轮询跟着这棵根走', async () => {

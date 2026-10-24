@@ -59,7 +59,7 @@ _SETUP_SYMBOLS = re.compile(r'<symbol id="i-(?:folder-search|hard-drive|database
 #: 这里只决定同一道题在浏览器里怎么称呼：命令行那份题面要把可选值写进去，页面用控件表达。
 _SETUP_COPY = {
     "data_root": ("数据目录", "Peach 数据库、缓存和设置文件都放在这里。"),
-    "media_dir": ("媒体库", "Peach 从媒体库读取视频和图片。请选择已存在的文件夹，也可以使用外置硬盘。"),
+    "media_dir": ("媒体库", "可选。已有本地或网盘影片时再添加；口味看板不依赖媒体库。"),
     "host": ("谁可以访问", ""),
     "port": ("端口", "浏览器地址里冒号后面的数字，一般不用改。"),
     "mdns_name": ("局域网访问地址", "选了「同一局域网的设备」之后，其他设备在浏览器里输入这个地址就能打开 Peach。"),
@@ -109,11 +109,13 @@ def missing_mount_dependencies(*, windows: bool) -> list[dict[str, str]]:
 
 
 def _media_dir_values(values: Mapping[str, object], default: str) -> list[str]:
-    """提交里的媒体目录：提交的是几行就几行，一行都没有就一行默认值。"""
+    """提交里的媒体目录。缺这道题时用默认值；明确交来的空列表表示先不添加媒体库。"""
+    if "media_dir" not in values:
+        return [default]
     raw = values.get("media_dir")
     if isinstance(raw, (list, tuple)):
-        return [str(item) for item in raw] or [default]
-    return [str(raw) if raw else default]
+        return [str(item) for item in raw]
+    return [str(raw)] if str(raw or "").strip() else []
 
 
 def _question_view(question) -> dict[str, str]:
@@ -144,7 +146,7 @@ def _access_on_by_default(asked) -> bool:
 
 
 def _setup_destination(config, *, history_guide: bool) -> str:
-    """完成页的入口：进馆藏，或者选了导入浏览器历史就先去口味页。都带 `onboarding=1`。"""
+    """完成页的入口。导入浏览记录时打开口味页；其余进入馆藏。都带 `onboarding=1`。"""
     return _normal_url(config) + ('taste?onboarding=1' if history_guide else '?onboarding=1')
 
 
@@ -348,7 +350,7 @@ def setup_questions(request: Request):
             "help": [line for line in (view["help"], note) if line],
             "default": question.default,
             # 星号与 `required` 跟着输入框走：两段式单选总有一项选中，不标。
-            "required": question.key != "host",
+            "required": question.key not in {"host", "media_dir"},
             # 只有媒体库露在外面，其余四项都有能直接用的默认值，折进「高级设置」。
             "advanced": question.key != "media_dir",
             "input": view["input"], "prefix": view["prefix"], "suffix": view["suffix"],
@@ -369,8 +371,8 @@ def setup_questions(request: Request):
         "cloud": {"help": _CLOUD_HELP, "link": {"url": _CLOUD_HELP_URL, "label": _CLOUD_HELP_LABEL},
                   "dependencies": missing_mount_dependencies(windows=windows)},
         "access_enabled": _access_on_by_default(asked),
-        "scan_now": True,
-        "history_guide": False,
+        "scan_now": False,
+        "history_guide": True,
         "remote_reporting": remote_reporting.snapshot(),
     })
 
@@ -526,6 +528,9 @@ def _read_answers(
         if question.key == "media_dir":
             from . import media_configuration
             dirs = _media_dir_values(submitted, question.default)
+            if not any(path.strip() for path in dirs):
+                values.update(media_dirs=(), media_sources=[])
+                continue
             kinds = submitted.get("media_location", [])
             roots = submitted.get("media_root", [])
             costs = submitted.get("media_cost", [])

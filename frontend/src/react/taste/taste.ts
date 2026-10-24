@@ -1,6 +1,6 @@
 /* 口味页的数据契约、轮询节律与纯折算。
  *
- * 四个端点在 `frontend/src` 里都只在这里声明一次（`tests/test_frontend_build.py` 盯着）。
+ * 端点在 `frontend/src` 里都只在这里声明一次（`tests/test_frontend_build.py` 盯着）。
  *
  * 键带着分析范围：`['taste', window]`。同一台机器的七天和全部时间是两份真相，合成一个键
  * 的话切范围就是把上一份直接覆盖掉，切回来还得再问一遍。范围切换时用
@@ -19,12 +19,62 @@ import { queryClient } from '../query';
 import { playedFor } from '../stats/stats';
 
 export const TASTE_URL = '/api/taste';
+export const TASTE_BOARD_URL = '/api/taste/board';
 export const TASTE_REFRESH_URL = '/api/taste/refresh';
 export const TASTE_IMPORT_URL = '/api/taste/import';
 export const TASTE_SOURCE_URL = '/api/taste/source';
 
 /** 一份 dashboard 的键，带分析范围。 */
 export const tasteKey = (window: string) => ['taste', window] as const;
+/** 口味看板：偏好摘要和在线目录命中。 */
+export const TASTE_BOARD_KEY = ['taste', 'board'] as const;
+
+export interface TasteBoardItem {
+  name: string;
+  strength: number;
+  evidence?: string[];
+}
+
+export interface TasteBoardDimension {
+  kind: string;
+  label: string;
+  items: TasteBoardItem[];
+}
+
+export interface TasteBoardWork {
+  code: string;
+  title: string;
+  performers?: string;
+  studio?: string;
+  release_date?: string;
+  tags?: string[];
+  taste_score: number;
+  band: string;
+  reasons?: string[];
+  href: string;
+  cover_url?: string;
+  rank?: number;
+}
+
+export interface TasteBoardStep {
+  title: string;
+  detail?: string;
+  href?: string;
+  secondary?: boolean;
+}
+
+export interface TasteBoard {
+  thin: boolean;
+  status: 'thin' | 'ready' | 'empty' | 'unavailable';
+  profile: { dimensions: TasteBoardDimension[] };
+  recommendations: TasteBoardWork[];
+  source: { id: string; name: string; anonymous?: boolean; api_key?: boolean; interval_seconds?: number };
+  onboarding: { title: string; detail: string; steps: TasteBoardStep[] } | null;
+  message?: string;
+}
+
+export const fetchTasteBoard = (signal?: AbortSignal) =>
+  apiGet<TasteBoard>(TASTE_BOARD_URL, signal);
 /** 读取浏览记录那一趟后台任务。 */
 export const TASTE_REFRESH_KEY = ['taste', 'refresh'] as const;
 
@@ -149,9 +199,14 @@ export const fetchTasteJob = (signal?: AbortSignal) =>
 
 /** 首屏：取完数才画。中止时把 `AbortError` 抛回挂载方，它据此放弃这一次。 */
 export async function prefetchTaste(window: string, signal: AbortSignal): Promise<void> {
-  await queryClient.fetchQuery({
-    queryKey: tasteKey(window), queryFn: () => fetchTaste(window, signal),
-  });
+  await Promise.all([
+    queryClient.fetchQuery({
+      queryKey: tasteKey(window), queryFn: () => fetchTaste(window, signal),
+    }),
+    queryClient.fetchQuery({
+      queryKey: TASTE_BOARD_KEY, queryFn: () => fetchTasteBoard(signal),
+    }),
+  ]);
 }
 
 /** 起一趟读取浏览记录。回的是任务快照，节律仍由 `TASTE_REFRESH_KEY` 说了算。 */

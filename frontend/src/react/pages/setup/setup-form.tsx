@@ -51,7 +51,8 @@ export function SetupForm({ setup, onDone }: { setup: SetupQuestions; onDone: (d
   const sources = setup.media_sources.map(({ value, label }) => [value, label] as const);
   const blank = (path = ''): SetupFolder => ({ path, location: setup.media_source_default, root: '', cost: setup.media_source_default === 'local' ? 'free' : '' });
   const folders = useFolderRows<SetupFolder>({
-    initial: () => [blank(media?.default ?? '')], blank: () => blank(), pickFolder, describe: describeFailure,
+    initial: () => [blank(media?.required === false ? '' : (media?.default ?? ''))],
+    blank: () => blank(), pickFolder, describe: describeFailure,
     focusAfterPick: true,
   });
   const [values, setValues] = useState<Record<string, string>>(
@@ -90,7 +91,9 @@ export function SetupForm({ setup, onDone }: { setup: SetupQuestions; onDone: (d
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy) return;
-    const missing = folders.rows.findIndex((row) => !row.cost);
+    const filledRows = folders.rows.filter((row) => row.path.trim());
+    const skipMedia = media?.required === false && filledRows.length === 0;
+    const missing = skipMedia ? -1 : folders.rows.findIndex((row) => !row.cost);
     if (missing >= 0) {
       setRequireReadPolicy(true);
       requestAnimationFrame(() => form.current?.querySelector<HTMLButtonElement>(`[data-media-read-policy="${missing}"] button`)?.focus());
@@ -99,7 +102,8 @@ export function SetupForm({ setup, onDone }: { setup: SetupQuestions; onDone: (d
     setBusy(true);
     setFailure('');
     const submission: SetupSubmission = {
-      media_dir: folders.rows, access_enabled: accessOn, scan_now: scanNow, history_guide: historyGuide,
+      media_dir: skipMedia ? [] : (media?.required === false ? filledRows : folders.rows),
+      access_enabled: accessOn, scan_now: scanNow, history_guide: historyGuide,
       ...(reporting ? { remote_reporting: { usage: reporting.usage, errors: reporting.errors } } : {}),
     };
     // 隐藏的题不提交，服务端按题目默认值补上。
@@ -165,7 +169,10 @@ export function SetupForm({ setup, onDone }: { setup: SetupQuestions; onDone: (d
       {media ? (
         <CardGroup first labelledBy="setup-media-title">
           <GroupTitle id="setup-media-title">
-            {media.label}<span aria-hidden className="ml-0.5 text-text-error-primary">*</span>
+            {media.label}
+            {media.required
+              ? <span aria-hidden className="ml-0.5 text-text-error-primary">*</span>
+              : <span className="ml-2 text-body-2-regular text-text-tertiary">可选</span>}
           </GroupTitle>
           {tableError ? <ErrorText key={errorRound}>{tableError}</ErrorText> : null}
           <div role="group" aria-labelledby="setup-media-title" className="flex flex-col gap-3">
@@ -227,17 +234,15 @@ export function SetupForm({ setup, onDone }: { setup: SetupQuestions; onDone: (d
 
       <CardGroup labelledBy="setup-options-title">
         <GroupTitle id="setup-options-title">完成设置后</GroupTitle>
-        <div className="flex flex-col gap-1.5">
-          <Checkbox isSelected={scanNow} onChange={setScanNow}>{scanLabel(filled)}</Checkbox>
-          <Help>读取已有 NFO 和封面，采集缺失资料。符合自动规则的资料会在处理完成后保存到数据库，其余资料留待确认。</Help>
-        </div>
-        <section aria-labelledby="setup-history-title" className="flex flex-col gap-1.5 border-t border-separator-border pt-4">
-          <h3 id="setup-history-title" className="flex items-center gap-2 text-body-medium text-text-primary">
-            浏览器历史记录<span className="text-body-2-regular text-text-tertiary">可选</span>
-          </h3>
+        <section aria-labelledby="setup-history-title" className="flex flex-col gap-1.5">
+          <h3 id="setup-history-title" className="text-body-medium text-text-primary">浏览器历史记录</h3>
           <Checkbox isSelected={historyGuide} onChange={setHistoryGuide}>接下来导入浏览器历史记录</Checkbox>
-          <Help>用于生成口味分析。完成设置后选择读取这台电脑，或导入其他设备的记录；也可稍后从「口味」进入。</Help>
+          <Help>用于生成口味看板。完成设置后读取这台电脑，或导入其他设备的记录。</Help>
         </section>
+        <div className="flex flex-col gap-1.5 border-t border-separator-border pt-4">
+          <Checkbox isSelected={scanNow} onChange={setScanNow}>{scanLabel(filled)}</Checkbox>
+          <Help>本地媒体库的扫描。读取已有 NFO 和封面，采集缺失资料。符合自动规则的资料会在处理完成后保存到数据库，其余资料留待确认。</Help>
+        </div>
       </CardGroup>
 
       {failure ? <ErrorText>{failure}</ErrorText> : null}

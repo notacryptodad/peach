@@ -340,9 +340,10 @@ it('快进扫过和正常看完是两回事，一行里分得出来', async () =
   expect(entry.textContent).toContain('真实 50% · 到达 90%');
 });
 
-it('一个视频都没有时给空态，能改配置就给去添加媒体目录', async () => {
+it('一个视频都没有时给空态，口味看板在前，能改配置就给去添加媒体目录', async () => {
   const { host, props } = await open(payload({ by_loc: [], by_library: [] }));
-  expect(host.querySelector('h3')?.textContent).toBe('还没有视频');
+  expect(host.querySelector('h3')?.textContent).toBe('按口味找片');
+  expect(host.querySelector('a')?.textContent).toBe('查看口味看板');
   expect(radialCharts(host)).toEqual([]);
   expect(host.querySelector('[role=tabpanel] section[aria-label]')).toBeNull();
   await click(buttonNamed('添加媒体目录', host));
@@ -353,8 +354,8 @@ it('这台机器不能改配置时空态不给那个按钮，只留能走的那�
   const props = { ...legacyProps(), configurable: false };
   const { host } = await open(payload({ by_loc: [], by_library: [] }), props);
   expect(buttonNamed('添加媒体目录', host)).toBeNull();
-  expect(host.querySelector('a')?.textContent).toBe('添加关注');
-  expect(looksLikeButton(host.querySelector('a'))).toBe(true);
+  expect(host.querySelector('a')?.textContent).toBe('查看口味看板');
+  expect(host.querySelector('a')?.className).toContain('bg-button-primary');
 });
 
 /** 空态里的去处画成次级实底按钮（白底、发丝边框），不是一行带下划线的文字链接。 */
