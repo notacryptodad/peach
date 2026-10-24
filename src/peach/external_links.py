@@ -18,6 +18,8 @@ LINK_LIMIT = 200
 SOURCE_LIMIT = 20
 ACTOR_LIMIT = 40
 SEARCH_LIMIT = 5
+CATALOG_UPGRADE_MESSAGE = "外部馆藏还没有升级完成。请从托盘退出 Peach 后重新打开。"
+_CATALOG_SCHEMA_TABLES = ("external_link", "external_source", "external_actor", "ledger_revision")
 PAGE_BYTES = 256 * 1024
 TIMEOUT = 12.0
 LOCATION = "external"
@@ -798,9 +800,29 @@ def resolve_playback(page: str, *, fetch=fetch_public_html) -> str:
     return canonical_url(found)
 
 
+def _schema_gap(exc: sqlite3.Error) -> bool:
+    text = str(exc).casefold()
+    if not any(name in text for name in _CATALOG_SCHEMA_TABLES):
+        return False
+    return "no such table" in text or "no such column" in text
+
+
+def _run_catalog(action):
+    """缺表或旧列是账本还没迁完，要给人一句能照做的原因。"""
+    try:
+        return action()
+    except sqlite3.OperationalError as exc:
+        if _schema_gap(exc):
+            raise ValueError(CATALOG_UPGRADE_MESSAGE) from exc
+        raise
+
+
 def q_external_links(contract, args=None) -> dict:
-    with contract.read_connection() as connection:
-        return list_links(connection, (args or {}).get("q"))
+    def read():
+        with contract.read_connection() as connection:
+            return list_links(connection, (args or {}).get("q"))
+
+    return _run_catalog(read)
 
 
 def q_external_link_search(contract, args=None) -> dict:
@@ -813,34 +835,36 @@ def w_external_link(contract, body) -> dict:
     bust = getattr(contract, "cache_bust", None)
     if callable(bust):
         bust()
-    if action == "actor-populate":
-        with contract.read_connection() as connection:
-            name = require_actor(connection, body)
-        hits = search_actor_works(name, api=getattr(contract, "public_catalog", None))
-        with contract.write_transaction() as connection:
-            result = store_actor_works(connection, name, hits)
-    else:
+
+    def write():
+        if action == "actor-populate":
+            with contract.read_connection() as connection:
+                name = require_actor(connection, body)
+            hits = search_actor_works(name, api=getattr(contract, "public_catalog", None))
+            with contract.write_transaction() as connection:
+                return store_actor_works(connection, name, hits)
         with contract.write_transaction() as connection:
             if action == "add":
-                result = add_link(connection, body)
-            elif action == "update":
-                result = update_link(connection, body)
-            elif action == "remove":
-                result = remove_link(connection, body)
-            elif action == "star":
-                result = star_link(connection, body)
-            elif action == "tag":
-                result = set_tag(connection, body)
-            elif action == "source-add":
-                result = add_source(connection, body)
-            elif action == "source-remove":
-                result = remove_source(connection, body)
-            elif action == "actor-add":
-                result = add_actor(connection, body)
-            elif action == "actor-remove":
-                result = remove_actor(connection, body)
-            else:
-                raise ValueError("未知操作")
+                return add_link(connection, body)
+            if action == "update":
+                return update_link(connection, body)
+            if action == "remove":
+                return remove_link(connection, body)
+            if action == "star":
+                return star_link(connection, body)
+            if action == "tag":
+                return set_tag(connection, body)
+            if action == "source-add":
+                return add_source(connection, body)
+            if action == "source-remove":
+                return remove_source(connection, body)
+            if action == "actor-add":
+                return add_actor(connection, body)
+            if action == "actor-remove":
+                return remove_actor(connection, body)
+            raise ValueError("未知操作")
+
+    result = _run_catalog(write)
     if callable(bust):
         bust()
     return result

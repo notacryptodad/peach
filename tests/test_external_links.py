@@ -10,9 +10,9 @@ from pathlib import Path
 import httpx
 
 from peach.external_links import (
-    add_link, add_source, fetch_public_html, list_links, media_address, q_external_links,
-    remove_link, require_play_page, resolve_playback, search_links, star_link, update_link,
-    w_external_link,
+    CATALOG_UPGRADE_MESSAGE, add_link, add_source, fetch_public_html, list_links, media_address,
+    q_external_links, remove_link, require_play_page, resolve_playback, search_links, star_link,
+    tidy_host, update_link, w_external_link,
 )
 from peach.external_play import PlayTickets, q_external_link_playback, rewrite_link_playlist
 from peach.migrations import upgrade
@@ -411,3 +411,58 @@ class ExternalLinkTests(unittest.TestCase):
             self.assertFalse(any(item.get("location") == "external" for item in theirs["items"]))
         finally:
             reset_active(token)
+
+    def test_source_add_keeps_missav_and_actor_add_keeps_a_chinese_name(self):
+        self.assertEqual(tidy_host("missav.ws"), "missav.ws")
+        self.assertEqual(tidy_host("https://MissAV.ws/cn/abc"), "missav.ws")
+        from peach import http
+        original = http.resolves_publicly
+        seen = []
+
+        def resolve(host):
+            seen.append(host)
+            return host == "missav.ws"
+
+        http.resolves_publicly = resolve
+        try:
+            added = w_external_link(
+                self.contract, {"action": "source-add", "host": "https://MissAV.ws/cn/abc"},
+            )
+            with self.assertRaisesRegex(ValueError, "已经添加"):
+                w_external_link(self.contract, {"action": "source-add", "host": "missav.ws"})
+            followed = w_external_link(self.contract, {"action": "actor-add", "name": "三上"})
+        finally:
+            http.resolves_publicly = original
+        self.assertEqual(seen, ["missav.ws"])
+        self.assertEqual(added["host"], "missav.ws")
+        self.assertEqual(added["sources"], ["missav.ws"])
+        self.assertEqual(followed["name"], "三上")
+        self.assertEqual(followed["actors"], ["三上"])
+        listed = q_external_links(self.contract)
+        self.assertEqual(listed["sources"], ["missav.ws"])
+        self.assertEqual(listed["actors"], ["三上"])
+        self.assertEqual(list(self.media.iterdir()), [])
+        with self.connect() as connection:
+            host = connection.execute("SELECT host FROM external_source").fetchone()[0]
+            name = connection.execute("SELECT name FROM external_actor").fetchone()[0]
+        self.assertEqual((host, name), ("missav.ws", "三上"))
+
+    def test_missing_catalog_tables_ask_to_restart(self):
+        with self.connect() as connection:
+            connection.execute("DROP TABLE external_source")
+            connection.execute("DROP TABLE external_actor")
+        with self.assertRaises(ValueError) as source:
+            w_external_link(self.contract, {"action": "source-add", "host": "missav.ws"})
+        self.assertEqual(str(source.exception), CATALOG_UPGRADE_MESSAGE)
+        with self.assertRaises(ValueError) as actor:
+            w_external_link(self.contract, {"action": "actor-add", "name": "三上"})
+        self.assertEqual(str(actor.exception), CATALOG_UPGRADE_MESSAGE)
+        with self.assertRaises(ValueError) as listed:
+            q_external_links(self.contract)
+        self.assertEqual(str(listed.exception), CATALOG_UPGRADE_MESSAGE)
+        with self.connect() as connection:
+            names = {row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('external_source', 'external_actor')",
+            )}
+        self.assertEqual(names, set())
