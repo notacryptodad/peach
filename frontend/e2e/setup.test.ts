@@ -101,11 +101,11 @@ describe('首次运行页', { skip: origin && media && dataRoot ? false : '只�
 
       // 完成态：入口链接拿到焦点，扫描没有排队，运行信息收起，口令不在页面上。
       await page.getByRole('heading', { name: '设置完成' }).waitFor({ state: 'visible' });
-      const entry = page.getByRole('link', { name: '进入 Peach' });
+      const entry = page.getByRole('link', { name: '打开口味看板' });
       await entry.waitFor({ state: 'visible' });
       assert.ok(await entry.evaluate((element) => element === document.activeElement), '入口链接拿到焦点');
-      assert.match((await entry.getAttribute('href')) ?? '', /^https?:\/\//);
-      await page.getByText('稍后在配置页开始扫描媒体库。').waitFor({ state: 'visible' });
+      assert.match((await entry.getAttribute('href')) ?? '', /\/taste\?onboarding=1$/);
+      await page.getByText('接下来在口味页读取浏览记录。本地媒体库可以稍后添加。').waitFor({ state: 'visible' });
       assert.equal(await page.title(), 'Peach · 设置完成');
       assert.deepEqual((await layout(page)).offenders, []);
       await page.getByText('运行信息', { exact: true }).click();

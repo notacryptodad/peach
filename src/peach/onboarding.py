@@ -86,7 +86,7 @@ class Question:
 @dataclass(frozen=True)
 class Answers:
     data_root: Path
-    #: 至少一个，都是已经解析过的绝对路径；互不重复，也互不包含。
+    #: 网页首启可以留空；命令行仍要求至少一个已存在的绝对路径，彼此不重复、不嵌套。
     media_dirs: tuple[Path, ...]
     host: str
     port: int
@@ -336,12 +336,16 @@ def configure(config: PeachConfig, answers: Answers, *, windows: bool) -> PeachC
     else:
         locations = {LOCAL_LOCATION: posix_declared_roots(len(answers.media_dirs))}
         mounts = {LOCAL_LOCATION: tuple(str(path) for path in answers.media_dirs)}
+    sources: list[dict[str, str]] = []
     if answers.media_sources is not None:
         from . import media_configuration
-        sources = media_configuration.prepare_sources(answers.media_sources, windows=windows, config=config)
-        locations, mounts, errors = media_configuration.validate(sources, windows=windows, config=config)
-        if errors:
-            raise ValueError("；".join(error for error in errors if error))
+        if answers.media_sources:
+            sources = media_configuration.prepare_sources(answers.media_sources, windows=windows, config=config)
+            locations, mounts, errors = media_configuration.validate(sources, windows=windows, config=config)
+            if errors:
+                raise ValueError("；".join(error for error in errors if error))
+        else:
+            locations, mounts = {}, {}
     prepared = settings_file.capture_existing(
         config, replication_enabled=False,
         overrides={"host": answers.host, "port": answers.port,

@@ -38,5 +38,9 @@ export function catalogEmptyHtml({ kind = 'catalog', filtered = false, jav = fal
       online ? '添加关注来源并获取内容后，这里会显示来源上的' + label + '。' : '添加内容并补充资料后，这里会显示对应信息。',
       { actions: online ? follow : add + follow });
   }
-  return emptyStateHtml('play', '还没有视频', '添加媒体目录或关注来源，开始建立你的馆藏。', { actions: add + follow });
+  const taste = '<a class="geist-button primary" href="/taste">查看口味看板</a>';
+  const library = configurable ? '<button class="geist-button" data-empty-settings>添加媒体目录</button>' : '';
+  const followLibrary = '<a class="geist-button" href="/subscriptions?tab=add">添加关注</a>';
+  return emptyStateHtml('heart', '按口味找片', '从在线目录推荐作品。本地媒体库和关注可以稍后添加。',
+    { actions: taste + library + followLibrary });
 }

@@ -4,7 +4,7 @@
 
 <h1 align="center">Peach</h1>
 
-<p align="center">A private video library: local drives, cloud drives and the creators you follow, all in one place.</p>
+<p align="center">A private adult library: a taste dashboard that finds works in online catalogs, with local drives, cloud drives and followed creators still in one place.</p>
 
 <p align="center">
   <a href="https://peach.video">Website</a> ·
@@ -33,7 +33,8 @@ https://github.com/user-attachments/assets/a5610874-e611-41bb-be22-7d99f0d64b62
 
 ## Features
 
-- **Local and cloud together**: browse hard drives and mounted cloud drives, including 115, PikPak and OneDrive, in one library.
+- **Taste dashboard**: summarize performer, creator, tag, studio, series, release-era and duration preferences. When those signals exist, matched works come from the public JavDB catalog. With a thin profile, read browser history or import bookmarks first. No API key; requests are spaced and capped. See [taste data sources](docs/TASTE_SOURCES.md).
+- **Local and cloud together**: browse hard drives and mounted cloud drives, including 115, PikPak and OneDrive, in one library. Add a media library later if you want one.
 - **Pick from the video wall**: drag through a full-screen cover wall and play in place, with versions and parts of the same title grouped together.
 - **Player subtitles**: load local subtitles, search SubtitleCat for simplified and traditional Chinese subtitles by video code, then adjust fonts, size, colors and backgrounds. No API key is required; results may include machine translations.
 - **Bring your existing collection**: read NFO files and posters, then fill missing titles, performers, studios and covers from multiple sources while keeping your edits.
@@ -85,8 +86,8 @@ Try search, filters and profiles in the [read-only demo](https://demo.peach.vide
 ### Windows
 
 1. Download the full installer, `Peach-<version>-windows-x64-setup.exe`, from [Releases](https://github.com/peach-mitao/peach/releases) and run it. No administrator rights needed. Alternatively, extract the full portable package and run `Peach.exe`.
-2. Choose media directories and access permissions on the setup page that opens in your browser.
-3. Start scanning, then browse and play in your browser.
+2. Choose access permissions on the setup page that opens in your browser. A local media directory can stay empty and be added later.
+3. Open the taste dashboard, read browser history or import bookmarks, and review online recommendations. Add a media directory and scan when you already have files.
 
 The full installer includes media tools for offline installation. The smaller lite installer downloads tools as needed during setup.
 

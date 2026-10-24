@@ -50,6 +50,7 @@ from .web_downloads import (q_downloads, w_download_cancel, w_download_postproce
                             w_download_submit)
 from .web_resource_search import q_resource_search
 from .web_jav_detail import q_jav_detail, q_jav_image, q_jav_resources, q_jav_reviews
+from .taste_online import q_taste_board
 from .web_jav_discovery import q_jav_discoveries
 from .web_feeds import (
     q_feed_check,
@@ -248,6 +249,10 @@ def _get_taste(contract, args):
         *taste_inputs(contract, window))
 
 
+def _get_taste_board(contract, _args):
+    return q_taste_board(contract)
+
+
 def _get_review(contract, args):
     # 账本之外，复核读三处磁盘：抓取脚本写的候选 CSV、卡片封面徽章用的封面目录、
     # 创作者头像与取景用的头像目录。
@@ -379,6 +384,7 @@ GET_HANDLERS = {
     "/api/suggest": _get_suggest,
     "/api/search-history": _get_search_history,
     "/api/taste": _get_taste,
+    "/api/taste/board": _get_taste_board,
     "/api/review": _get_review,
     "/api/post-setup-tutorial": _get_post_setup_tutorial,
 }

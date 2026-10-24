@@ -8,7 +8,7 @@
  * `tabindex` 都由它给，注册表里的 `tabs` 条目是页面级导航，不是这种同页切块。
  * 体积与来源名共用 `src/core/index.ts` 的口径；标签的界面名称由遗留层的 `tagLabel` 递进来。 */
 import {
-  RiDatabase2Line, RiEyeLine, RiHardDrive2Line, RiHistoryLine, RiPriceTag3Line, RiVideoLine,
+  RiCompassLine, RiDatabase2Line, RiEyeLine, RiHardDrive2Line, RiHistoryLine, RiPriceTag3Line,
 } from '@remixicon/react';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -48,7 +48,7 @@ const VIEWING_COLOR = CHART_COLORS[4];
 
 const CARD = `${cardClass()} flex flex-col gap-4`;
 
-const NO_VIDEO_HINT = '添加媒体目录或关注来源后，这里会显示馆藏统计。';
+const NO_VIDEO_HINT = '从在线目录按口味推荐作品。本地媒体库可以稍后添加。';
 const NO_TAG_HINT = '补全资料或添加标签后，这里会显示馆藏中的内容标签。';
 const NO_WATCH_HINT = '开始播放后，这里会显示最近的真实观看证据。';
 const NO_TAG_SOURCE_HINT = '刮削或手动打标之后，这里会显示每个来源覆盖了多少视频。';
@@ -121,10 +121,11 @@ function InventoryDetail({ data, configurable, openMediaSettings }: { data: Stat
   const videos = data.by_loc.reduce((sum, row) => sum + row.videos, 0);
   if (!videos) {
     return (
-      <EmptyState shell="plain" icon={RiVideoLine} title="还没有视频" actions={
+      <EmptyState shell="plain" icon={RiCompassLine} title="按口味找片" actions={
         <>
+          <ButtonLink href="/taste" size="small">查看口味看板</ButtonLink>
           {configurable
-            ? <Button size="small" onClick={openMediaSettings}>添加媒体目录</Button>
+            ? <Button variant="secondary" size="small" onClick={openMediaSettings}>添加媒体目录</Button>
             : null}
           <ButtonLink variant="secondary" href="/subscriptions?tab=add" size="small">添加关注</ButtonLink>
         </>

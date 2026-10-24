@@ -27,14 +27,16 @@ export function SetupDoneView({ done }: { done: SetupDone }) {
   }, [done.redirect]);
 
   return (
-    <AuthCard title="设置完成" lede="正在启动馆藏。">
+    <AuthCard title="设置完成" lede={done.history_guide ? '正在打开口味看板。' : '正在启动馆藏。'}>
       <p className="text-body-regular text-text-primary">
         {done.restored ? '已连接已有数据目录。' : done.scan_requested
           ? '首次扫描已排队，在后台整理媒体库，期间可以照常使用 Peach。'
-          : '稍后在配置页开始扫描媒体库。'}
+          : done.history_guide
+            ? '接下来在口味页读取浏览记录。本地媒体库可以稍后添加。'
+            : '本地媒体库可以在配置页添加。'}
       </p>
       <ButtonLink ref={entry} href={done.url} className="self-start">
-        {done.history_guide ? '导入浏览器历史记录' : '进入 Peach'}
+        {done.history_guide ? '打开口味看板' : '进入 Peach'}
       </ButtonLink>
       <Disclosure summary="运行信息">
         <FactList>

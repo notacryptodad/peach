@@ -274,8 +274,8 @@ describe('完成态', () => {
     const { host } = await open({}, { [SETUP_URL]: { status: 200, body: done({
       url: 'http://127.0.0.1:8900/taste?onboarding=1', scan_requested: false, history_guide: true }) } });
     await submitForm(host);
-    expect(host.textContent).toContain('稍后在配置页开始扫描媒体库。');
-    const entry = [...host.querySelectorAll('a')].find((link) => link.textContent === '导入浏览器历史记录');
+    expect(host.textContent).toContain('接下来在口味页读取浏览记录。本地媒体库可以稍后添加。');
+    const entry = [...host.querySelectorAll('a')].find((link) => link.textContent === '打开口味看板');
     expect(entry?.getAttribute('href')).toBe('http://127.0.0.1:8900/taste?onboarding=1');
   });
 
